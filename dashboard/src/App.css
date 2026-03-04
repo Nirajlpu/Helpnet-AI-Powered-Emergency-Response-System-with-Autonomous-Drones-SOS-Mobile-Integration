@@ -1,0 +1,40 @@
+/* App-specific styles */
+.helpnet-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Emergency status colors */
+.status-critical {
+  color: #ff4444;
+}
+
+.status-high {
+  color: #ff8800;
+}
+
+.status-medium {
+  color: #ffcc00;
+}
+
+.status-low {
+  color: #00cc00;
+}
+
+.bg-status-critical {
+  background-color: #ff4444;
+}
+
+.bg-status-high {
+  background-color: #ff8800;
+}
+
+.bg-status-medium {
+  background-color: #ffcc00;
+}
+
+.bg-status-low {
+  background-color: #00cc00;
+}
