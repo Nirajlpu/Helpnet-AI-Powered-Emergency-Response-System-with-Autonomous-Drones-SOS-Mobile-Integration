@@ -7,28 +7,32 @@ export const api = axios.create({
     headers: {
         'Content-Type': 'application/json',
     },
-    timeout: 10000,
+    timeout: 15000,
 })
 
-// Request interceptor
+// Request interceptor — attach auth token
 api.interceptors.request.use(
     (config) => {
         const token = localStorage.getItem('token')
         if (token) {
-            config.headers.Authorization = `Bearer ${token}`
+            // DRF TokenAuthentication uses "Token xxx" prefix
+            config.headers.Authorization = `Token ${token}`
         }
         return config
     },
     (error) => Promise.reject(error)
 )
 
-// Response interceptor
+// Response interceptor — unwrap data, handle 401
 api.interceptors.response.use(
     (response) => response.data,
     (error) => {
         if (error.response?.status === 401) {
             localStorage.removeItem('token')
-            window.location.href = '/login'
+            // Don't redirect if already on login page
+            if (window.location.pathname !== '/login') {
+                window.location.href = '/login'
+            }
         }
         return Promise.reject(error)
     }

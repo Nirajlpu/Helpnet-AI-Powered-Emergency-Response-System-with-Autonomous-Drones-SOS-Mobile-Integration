@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Helpnet.FullScreen" parent="Theme.Helpnet">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <!-- Other API 28+ specific items -->
+    </style>
+</resources>

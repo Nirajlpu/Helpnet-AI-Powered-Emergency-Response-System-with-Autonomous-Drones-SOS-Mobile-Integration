@@ -21,7 +21,7 @@ import {
     LocationOn as LocationIcon,
     AccessTime as TimeIcon,
 } from '@mui/icons-material'
-import { formatDistanceToNow } from 'date-fns'
+import { format } from 'date-fns'
 
 import { dispatchDrone } from '@store/slices/incidentsSlice.js'
 
@@ -93,7 +93,7 @@ const IncidentTable = () => {
             renderCell: (params) => (
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     <TimeIcon fontSize="small" color="action" />
-                    {formatDistanceToNow(new Date(params.value), { addSuffix: true })}
+                    {format(new Date(params.value), 'MMM d, yyyy, h:mm a')}
                 </Box>
             ),
         },
@@ -101,12 +101,22 @@ const IncidentTable = () => {
             field: 'location',
             headerName: 'Location',
             flex: 1,
-            renderCell: (params) => (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <LocationIcon fontSize="small" color="action" />
-                    {params.row.address || `${params.value?.coordinates?.[1]?.toFixed(4)}, ${params.value?.coordinates?.[0]?.toFixed(4)}`}
-                </Box>
-            ),
+            renderCell: (params) => {
+                const coords = params.row.location_coordinates?.coordinates || params.value?.coordinates;
+                const lng = coords?.[0];
+                const lat = coords?.[1];
+                let coordsText = '';
+                if (lat !== undefined && lng !== undefined) {
+                    coordsText = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+                }
+
+                return (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <LocationIcon fontSize="small" color="action" />
+                        {params.row.address || coordsText || 'Unknown'}
+                    </Box>
+                );
+            },
         },
         {
             field: 'ai_classification',

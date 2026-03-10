@@ -77,9 +77,10 @@ const DroneMap = () => {
 
         // Add incident markers with popups
         incidents.forEach(incident => {
-            if (!incident.location?.coordinates) return
+            const coords = incident.location_coordinates?.coordinates || incident.location?.coordinates;
+            if (!coords) return
 
-            const [lng, lat] = incident.location.coordinates
+            const [lng, lat] = coords
             const severityColor = getSeverityColor(incident.severity)
 
             // Custom pulsing circle marker icon
@@ -182,8 +183,9 @@ const DroneMap = () => {
         // Fit bounds if incidents exist
         if (incidents.length > 0) {
             const validCoords = incidents
-                .filter(i => i.location?.coordinates)
-                .map(i => [i.location.coordinates[1], i.location.coordinates[0]])
+                .map(i => i.location_coordinates?.coordinates || i.location?.coordinates)
+                .filter(Boolean)
+                .map(coords => [coords[1], coords[0]])
 
             if (validCoords.length > 0) {
                 map.current.fitBounds(L.latLngBounds(validCoords).pad(0.3))

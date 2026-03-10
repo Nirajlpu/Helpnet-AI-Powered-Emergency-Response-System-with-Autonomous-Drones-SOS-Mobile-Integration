@@ -1,7 +1,7 @@
 import { Paper, Typography, List, ListItem, ListItemText, ListItemIcon, Chip, Box } from '@mui/material'
 import { Warning, ErrorOutline, InfoOutlined } from '@mui/icons-material'
 import { useSelector } from 'react-redux'
-import { formatDistanceToNow } from 'date-fns'
+import { format } from 'date-fns'
 
 const severityConfig = {
     CRITICAL: { icon: <ErrorOutline color="error" />, color: 'error' },
@@ -68,7 +68,7 @@ const RecentAlerts = () => {
                                             {alert.description || 'Emergency reported'}
                                         </Typography>
                                         <Typography variant="caption" color="text.secondary">
-                                            {formatDistanceToNow(new Date(alert.created_at), { addSuffix: true })}
+                                            {format(new Date(alert.created_at), 'MMM d, yyyy, h:mm a')}
                                         </Typography>
                                     </>
                                 }

@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Helpnet</string>
+    <style name="RoundedImage" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">30dp</item> <!-- Adjust to your liking -->
+    </style>
+</resources>

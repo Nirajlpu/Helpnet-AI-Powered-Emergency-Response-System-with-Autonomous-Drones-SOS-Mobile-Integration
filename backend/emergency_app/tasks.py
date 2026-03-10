@@ -29,13 +29,13 @@ def auto_dispatch_drone(incident_id):
             
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
-                "dispatch_updates",
+                "dashboard_updates",
                 {
                     'type': 'dispatch_notification',
                     'message': {
                         'incident_id': str(incident_id),
                         'drone_id': str(best_drone.id),
-                        'eta': router.calculate_eta(best_drone.current_location, incident.location)
+                        'eta': router.calculate_eta(best_drone.current_location, incident.location_coordinates)
                     }
                 }
             )

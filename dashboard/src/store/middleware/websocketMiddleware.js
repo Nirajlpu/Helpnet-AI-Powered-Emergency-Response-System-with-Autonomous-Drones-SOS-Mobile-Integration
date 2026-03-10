@@ -1,4 +1,4 @@
-import { addIncident, updateIncidentRealtime } from '../slices/incidentsSlice.js'
+import { addIncident, updateIncidentRealtime } from '../slices/incidentSlice.js'
 import { updateTelemetry, updateDroneStatus } from '../slices/dronesSlice.js'
 import { addAlert } from '../slices/uiSlice.js'
 
@@ -8,7 +8,11 @@ export const websocketMiddleware = (store) => (next) => (action) => {
     const { dispatch } = store
 
     if (action.type === 'websocket/connect') {
-        const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/dashboard/'
+        // Close existing connection if any
+        if (ws && ws.readyState <= WebSocket.OPEN) {
+            ws.close()
+        }
+        const wsUrl = import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8000/ws/dashboard/`
 
         ws = new WebSocket(wsUrl)
 

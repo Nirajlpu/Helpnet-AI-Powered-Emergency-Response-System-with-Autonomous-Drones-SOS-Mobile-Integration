@@ -15,6 +15,7 @@ import StatsCard from '@components/dashboard/StatsCard.jsx'
 import ActiveIncidentsList from '@components/dashboard/ActiveIncidentsList.jsx'
 import { useWebSocket } from '@hooks/useWebSocket.js'
 import { removeAlert } from '@store/slices/uiSlice.js'
+import { fetchIncidents } from '@store/slices/incidentSlice.js'
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/dashboard/'
 
@@ -26,6 +27,10 @@ const Dashboard = () => {
     const { alerts } = useSelector((state) => state.ui)
 
     const { isConnected, lastMessage } = useWebSocket(WS_URL)
+
+    useEffect(() => {
+        dispatch(fetchIncidents())
+    }, [dispatch])
 
     useEffect(() => {
         if (lastMessage) {

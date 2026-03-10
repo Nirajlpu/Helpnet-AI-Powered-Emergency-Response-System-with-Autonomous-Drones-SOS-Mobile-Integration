@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { login } from '@store/slices/authSlice.js'
+import { useNavigate } from 'react-router-dom'
+import { login, setDevAuth } from '@store/slices/authSlice.js'
 import {
     Container,
     Box,
@@ -8,13 +9,15 @@ import {
     TextField,
     Button,
     Paper,
-    Alert
+    Alert,
+    Divider,
 } from '@mui/material'
 import { Security as SecurityIcon } from '@mui/icons-material'
 
 const Login = () => {
     const dispatch = useDispatch()
-    const { loading, error } = useSelector((state) => state.auth)
+    const navigate = useNavigate()
+    const { isLoading, error } = useSelector((state) => state.auth)
     const [credentials, setCredentials] = useState({
         username: '',
         password: ''
@@ -27,9 +30,17 @@ const Login = () => {
         })
     }
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault()
-        dispatch(login(credentials))
+        const result = await dispatch(login(credentials))
+        if (login.fulfilled.match(result)) {
+            navigate('/')
+        }
+    }
+
+    const handleDemoMode = () => {
+        dispatch(setDevAuth())
+        navigate('/')
     }
 
     return (
@@ -103,12 +114,24 @@ const Login = () => {
                             type="submit"
                             fullWidth
                             variant="contained"
-                            disabled={loading}
+                            disabled={isLoading}
                             sx={{ mt: 3, mb: 2, py: 1.5 }}
                         >
-                            {loading ? 'Authenticating...' : 'Secure Login'}
+                            {isLoading ? 'Authenticating...' : 'Secure Login'}
                         </Button>
                     </Box>
+
+                    <Divider sx={{ width: '100%', my: 1 }}>or</Divider>
+
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                        color="secondary"
+                        onClick={handleDemoMode}
+                        sx={{ py: 1.2 }}
+                    >
+                        🚀 Enter Demo Mode (No Backend)
+                    </Button>
                 </Paper>
             </Box>
         </Container>

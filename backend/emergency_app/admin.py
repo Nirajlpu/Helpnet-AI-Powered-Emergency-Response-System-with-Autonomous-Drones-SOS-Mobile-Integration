@@ -1,9 +1,8 @@
 from django.contrib import admin
-from django.contrib.gis.admin import OSMGeoAdmin
-from .models import Incident, Drone, Suspect, Evidence, Responder
+from .models import Incident, Drone, Suspect, Evidence, Responder,UserProfile
 
 @admin.register(Incident)
-class IncidentAdmin(OSMGeoAdmin):
+class IncidentAdmin(admin.ModelAdmin):
     list_display = ('id', 'severity', 'status', 'created_at', 'reporter')
     list_filter = ('severity', 'status', 'created_at')
     search_fields = ('id', 'description', 'address')
@@ -11,13 +10,13 @@ class IncidentAdmin(OSMGeoAdmin):
     readonly_fields = ('created_at', 'resolved_at', 'blockchain_hash')
 
 @admin.register(Drone)
-class DroneAdmin(OSMGeoAdmin):
+class DroneAdmin(admin.ModelAdmin):
     list_display = ('name', 'status', 'battery_level', 'current_incident', 'last_seen')
     list_filter = ('status', 'has_thermal', 'has_lidar')
     search_fields = ('name',)
 
 @admin.register(Suspect)
-class SuspectAdmin(OSMGeoAdmin):
+class SuspectAdmin(admin.ModelAdmin):
     list_display = ('name', 'risk_level', 'last_seen_timestamp')
     list_filter = ('risk_level',)
     search_fields = ('name', 'known_aliases')
@@ -28,6 +27,12 @@ class EvidenceAdmin(admin.ModelAdmin):
     list_filter = ('file_type', 'is_redacted')
 
 @admin.register(Responder)
-class ResponderAdmin(OSMGeoAdmin):
+class ResponderAdmin(admin.ModelAdmin):
     list_display = ('user', 'is_verified', 'is_available', 'rating')
     list_filter = ('is_verified', 'is_available', 'specializations')
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'role', 'is_verified', 'is_volunteer')
+    list_filter = ('is_verified', 'role', 'is_volunteer')

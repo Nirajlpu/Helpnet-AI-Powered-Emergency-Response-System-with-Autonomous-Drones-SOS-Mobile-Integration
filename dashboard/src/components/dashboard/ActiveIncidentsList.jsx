@@ -9,11 +9,23 @@ import {
     AccessTime as TimeIcon,
     Warning as WarningIcon,
     FilterList as FilterIcon,
+    Person as PersonIcon,
+    Category as CategoryIcon,
 } from '@mui/icons-material';
-import { formatDistanceToNow } from 'date-fns';
+import { format } from 'date-fns';
 
 // Prefetch the video page chunk so new tab opens faster
 const prefetchVideoPage = () => import('../../pages/IncidentVideoPage.jsx');
+
+const incidentTypeLabel = (type) => ({
+    'FIRE': '🔥 Fire', 'MEDICAL': '🏥 Medical', 'ACCIDENT': '💥 Accident',
+    'ROAD_ACCIDENT': '🚗 Road Accident', 'FLOOD': '🌊 Flood', 'EARTHQUAKE': '🌍 Earthquake',
+    'LANDSLIDE': '⛰️ Landslide', 'STORM': '🌪️ Storm', 'CHEMICAL_SPILL': '☣️ Chemical Spill',
+    'INDUSTRIAL_ACCIDENT': '🏭 Industrial', 'CRIME': '🚨 Crime', 'TERRORIST_ATTACK': '💣 Terror Attack',
+    'BOMB_THREAT': '💣 Bomb Threat', 'NATURAL_DISASTER': '🌋 Natural Disaster',
+    'NUCLEAR_LEAK': '☢️ Nuclear Leak', 'BIOLOGICAL_HAZARD': '🦠 Bio Hazard',
+    'WILDFIRE': '🔥 Wildfire', 'TSUNAMI': '🌊 Tsunami', 'OTHER': '📋 Other',
+}[type] || type);
 
 const ActiveIncidentsList = () => {
     const { items: incidents, isLoading } = useSelector((state) => state.incidents);
@@ -22,7 +34,8 @@ const ActiveIncidentsList = () => {
     useEffect(() => { prefetchVideoPage(); }, []);
 
     // Filter state
-    const [dateFilter, setDateFilter] = useState('all');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
     const [severityFilter, setSeverityFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [typeFilter, setTypeFilter] = useState('all');
@@ -31,18 +44,11 @@ const ActiveIncidentsList = () => {
 
     // Apply filters
     const filteredIncidents = activeIncidents.filter(inc => {
-        // Date filter
-        if (dateFilter !== 'all') {
+        // Date range filter
+        if (dateFrom || dateTo) {
             const created = new Date(inc.created_at);
-            const now = new Date();
-            if (dateFilter === 'today' && created.toDateString() !== now.toDateString()) return false;
-            if (dateFilter === '1h' && (now - created) > 3600000) return false;
-            if (dateFilter === '6h' && (now - created) > 21600000) return false;
-            if (dateFilter === '24h' && (now - created) > 86400000) return false;
-            if (dateFilter === '7d' && (now - created) > 604800000) return false;
-            if (dateFilter === '1m' && (now - created) > 2592000000) return false;
-            if (dateFilter === '3m' && (now - created) > 7776000000) return false;
-            if (dateFilter === '6m' && (now - created) > 15552000000) return false;
+            if (dateFrom && created < new Date(dateFrom)) return false;
+            if (dateTo && created > new Date(dateTo)) return false;
         }
         // Severity filter
         if (severityFilter !== 'all' && inc.severity !== severityFilter) return false;
@@ -122,20 +128,24 @@ const ActiveIncidentsList = () => {
             <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                 <FilterIcon sx={{ fontSize: 18, color: 'text.secondary', mr: 0.5 }} />
 
-                <FormControl size="small" sx={selectSx}>
-                    <InputLabel>Date</InputLabel>
-                    <Select value={dateFilter} label="Date" onChange={(e) => setDateFilter(e.target.value)}>
-                        <MenuItem value="all">All Time</MenuItem>
-                        <MenuItem value="1h">Last 1 Hour</MenuItem>
-                        <MenuItem value="6h">Last 6 Hours</MenuItem>
-                        <MenuItem value="24h">Last 24 Hours</MenuItem>
-                        <MenuItem value="today">Today</MenuItem>
-                        <MenuItem value="7d">Last 7 Days</MenuItem>
-                        <MenuItem value="1m">Last 1 Month</MenuItem>
-                        <MenuItem value="3m">Last 3 Months</MenuItem>
-                        <MenuItem value="6m">Last 6 Months</MenuItem>
-                    </Select>
-                </FormControl>
+                <TextField
+                    type="datetime-local"
+                    size="small"
+                    label="From"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ minWidth: 180, '& .MuiInputBase-input': { py: 0.8, fontSize: '0.8rem' } }}
+                />
+                <TextField
+                    type="datetime-local"
+                    size="small"
+                    label="To"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ minWidth: 180, '& .MuiInputBase-input': { py: 0.8, fontSize: '0.8rem' } }}
+                />
 
                 <FormControl size="small" sx={selectSx}>
                     <InputLabel>Severity</InputLabel>
@@ -233,8 +243,32 @@ const ActiveIncidentsList = () => {
                                     {incident.description}
                                 </Typography>
 
-                                {/* Footer: location + time */}
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 0.5 }}>
+                                {/* Footer: type + reporter + location + time */}
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 0.5 }}>
+                                    {incident.incident_type && (
+                                        <Chip
+                                            icon={<CategoryIcon sx={{ fontSize: 14 }} />}
+                                            label={incidentTypeLabel(incident.incident_type)}
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{ fontSize: '0.65rem', height: 22 }}
+                                        />
+                                    )}
+                                    {(incident.reporter_profile_detail || (typeof incident.reporter === 'object' && incident.reporter)) && (() => {
+                                        const rep = incident.reporter_profile_detail || incident.reporter;
+                                        return (
+                                            <Chip
+                                                icon={<PersonIcon sx={{ fontSize: 14 }} />}
+                                                label={`${rep.name} (${rep.phone})`}
+                                                size="small"
+                                                variant="outlined"
+                                                sx={{ fontSize: '0.65rem', height: 22 }}
+                                            />
+                                        );
+                                    })()}
+                                </Box>
+
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                         <LocationIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
                                         <Typography variant="caption" color="text.secondary">
@@ -244,7 +278,7 @@ const ActiveIncidentsList = () => {
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                         <TimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
                                         <Typography variant="caption" color="text.secondary">
-                                            {formatDistanceToNow(new Date(incident.created_at), { addSuffix: true })}
+                                            {format(new Date(incident.created_at), 'MMM d, yyyy, h:mm a')}
                                         </Typography>
                                     </Box>
                                 </Box>

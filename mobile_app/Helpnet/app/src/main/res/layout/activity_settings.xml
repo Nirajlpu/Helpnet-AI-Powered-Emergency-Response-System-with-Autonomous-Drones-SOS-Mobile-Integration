@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Enter API auth token for testing (Bearer/JWT)"
+        android:textAppearance="?android:attr/textAppearanceMedium"
+        android:paddingBottom="8dp" />
+
+    <EditText
+        android:id="@+id/editToken"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Auth token"
+        android:inputType="text"
+        android:lines="3"
+        android:gravity="top" />
+
+    <Button
+        android:id="@+id/saveTokenButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Save"
+        android:layout_marginTop="16dp" />
+
+</LinearLayout>

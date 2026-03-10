@@ -70,17 +70,10 @@ class VideoStreamer:
     def _upload_buffer(self, buffer, face_count=0):
         try:
             files = {'frame': ('frame.jpg', buffer.tobytes(), 'image/jpeg')}
-            data = {
-                'incident_id': self.incident_id,
-                'drone_name': self.drone_name,
-                'timestamp': datetime.now().isoformat(),
-                'faces_detected': face_count
-            }
-            
+            # Upload to drone-stream-frame endpoint for live dashboard display
             requests.post(
-                f"{self.backend_url}/api/evidence/upload_frame/",
+                f"{self.backend_url}/api/incidents/{self.incident_id}/drone-stream-frame/",
                 files=files,
-                data=data,
                 timeout=5
             )
         except:
