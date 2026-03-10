@@ -4,6 +4,9 @@ export const profileService = {
     // GET /api/profiles/ — list all profiles (with filters)
     getAll: (params = {}) => api.get('/profiles/', { params }),
 
+    // GET /api/profiles/?search=<query> — search by name/email/phone/user_id_code
+    search: (query) => api.get('/profiles/', { params: { search: query } }),
+
     // GET /api/profiles/:id/ — get a single profile
     getById: (id) => api.get(`/profiles/${id}/`),
 

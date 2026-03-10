@@ -44,8 +44,8 @@ const Dashboard = () => {
 
     const activeIncidents = (incidents || []).filter(inc => inc.status !== 'RESOLVED');
     const liveIncidents = activeIncidents.filter(inc => inc.status === 'DISPATCHED' || inc.status === 'EN_ROUTE');
-    const inProgressIncidents = activeIncidents.filter(inc => inc.status === 'ON_SCENE');
-    const underReviewIncidents = activeIncidents.filter(inc => inc.status === 'REPORTED');
+    const inProgressIncidents = activeIncidents.filter(inc => inc.action_taken_by_authority === 'IN_PROGRESS');
+    const underReviewIncidents = activeIncidents.filter(inc => inc.action_taken_by_authority === 'UNDER_REVIEW');
 
     return (
         <Box sx={{ p: { xs: 1, md: 3 }, maxWidth: '100%', margin: '0 auto', width: '100%' }}>

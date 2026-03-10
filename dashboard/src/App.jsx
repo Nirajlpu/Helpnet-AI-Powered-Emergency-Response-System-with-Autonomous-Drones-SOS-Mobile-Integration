@@ -1,7 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { useSelector } from 'react-redux'
+import { useSelector, useDispatch } from 'react-redux'
 import { Box, CircularProgress } from '@mui/material'
+import { fetchProfile } from '@store/slices/authSlice.js'
 
 import MainLayout from '@components/layout/MainLayout'
 import Login from '@pages/Login'
@@ -15,6 +16,7 @@ const Drones = lazy(() => import('@pages/Drones'))
 const DroneDetailPage = lazy(() => import('@pages/DroneDetailPage'))
 const Analytics = lazy(() => import('@pages/Analytics'))
 const Settings = lazy(() => import('@pages/Settings'))
+const Profile = lazy(() => import('@pages/Profile'))
 const SystemHealth = lazy(() => import('@pages/SystemHealth'))
 
 const PageLoader = () => (
@@ -24,7 +26,14 @@ const PageLoader = () => (
 )
 
 function App() {
-  const { isAuthenticated } = useSelector((state) => state.auth)
+  const dispatch = useDispatch()
+  const { isAuthenticated, profile, profileFetched } = useSelector((state) => state.auth)
+
+  useEffect(() => {
+    if (isAuthenticated && !profileFetched) {
+      dispatch(fetchProfile())
+    }
+  }, [isAuthenticated, profileFetched, dispatch])
 
   if (!isAuthenticated) {
     return <Login />
@@ -42,6 +51,7 @@ function App() {
           <Route path="/drones" element={<Drones />} />
           <Route path="/drones/:id" element={<DroneDetailPage />} />
           <Route path="/analytics" element={<Analytics />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/system-health" element={<SystemHealth />} />
         </Routes>

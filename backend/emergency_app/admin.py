@@ -1,5 +1,24 @@
 from django.contrib import admin
-from .models import Incident, Drone, Suspect, Evidence, Responder,UserProfile
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.contrib.auth.models import User
+from .models import Incident, Drone, Suspect, Evidence, Responder, UserProfile, FamilyRelation
+
+
+class UserProfileInline(admin.StackedInline):
+    model = UserProfile
+    can_delete = False
+    verbose_name_plural = 'User Profile'
+    fk_name = 'user'
+
+
+class UserAdmin(BaseUserAdmin):
+    inlines = [UserProfileInline]
+
+
+# Re-register User with the inline
+admin.site.unregister(User)
+admin.site.register(User, UserAdmin)
+
 
 @admin.register(Incident)
 class IncidentAdmin(admin.ModelAdmin):
@@ -34,5 +53,24 @@ class ResponderAdmin(admin.ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ('user', 'role', 'is_verified', 'is_volunteer')
+    list_display = ('user', 'first_name', 'last_name', 'role', 'is_verified', 'is_volunteer')
     list_filter = ('is_verified', 'role', 'is_volunteer')
+    search_fields = ('first_name', 'last_name', 'email', 'phone', 'user_id_code')
+
+    class FamilyInline(admin.TabularInline):
+        model = FamilyRelation
+        fk_name = 'from_user'
+        extra = 1
+        autocomplete_fields = ['to_user']
+        verbose_name = 'Family Member'
+        verbose_name_plural = 'Family Members'
+
+    inlines = [FamilyInline]
+
+
+@admin.register(FamilyRelation)
+class FamilyRelationAdmin(admin.ModelAdmin):
+    list_display = ('from_user', 'relation', 'to_user')
+    list_filter = ('relation',)
+    search_fields = ('from_user__first_name', 'from_user__last_name', 'to_user__first_name', 'to_user__last_name')
+    autocomplete_fields = ['from_user', 'to_user']

@@ -75,8 +75,9 @@ const DroneMap = () => {
         markersRef.current.forEach(marker => marker.remove())
         markersRef.current = []
 
-        // Add incident markers with popups
-        incidents.forEach(incident => {
+        // Add incident markers with popups — only active (non-resolved) incidents
+        const activeIncidents = incidents.filter(i => i.status !== 'RESOLVED')
+        activeIncidents.forEach(incident => {
             const coords = incident.location_coordinates?.coordinates || incident.location?.coordinates;
             if (!coords) return
 
@@ -180,9 +181,9 @@ const DroneMap = () => {
             markersRef.current.push(marker)
         })
 
-        // Fit bounds if incidents exist
-        if (incidents.length > 0) {
-            const validCoords = incidents
+        // Fit bounds if active incidents exist
+        if (activeIncidents.length > 0) {
+            const validCoords = activeIncidents
                 .map(i => i.location_coordinates?.coordinates || i.location?.coordinates)
                 .filter(Boolean)
                 .map(coords => [coords[1], coords[0]])

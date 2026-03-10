@@ -41,18 +41,50 @@ class UserProfileSerializer(GeoModelSerializer):
         relations = FamilyRelation.objects.filter(from_user=obj)
         return FamilyRelationSerializer(relations, many=True).data
 
+    def update(self, instance, validated_data):
+        instance = super().update(instance, validated_data)
+        # Keep Django User first_name / last_name in sync
+        user = instance.user
+        changed = False
+        if user.first_name != instance.first_name:
+            user.first_name = instance.first_name
+            changed = True
+        if user.last_name != instance.last_name:
+            user.last_name = instance.last_name
+            changed = True
+        if user.email != instance.email:
+            user.email = instance.email
+            changed = True
+        if changed:
+            user.save(update_fields=['first_name', 'last_name', 'email'])
+        return instance
+
 
 class UserProfileMinimalSerializer(serializers.ModelSerializer):
     """Lightweight serializer for nested display (e.g. reporter in incident)."""
     name = serializers.SerializerMethodField()
+    family_members = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
         fields = ['id', 'user_id_code', 'name', 'phone', 'email', 'role', 'avatar',
-                  'village_city', 'district', 'state', 'location_coordinates']
+                  'village_city', 'district', 'state', 'pincode', 'location_coordinates', 'family_members']
 
     def get_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
+
+    def get_family_members(self, obj):
+        relations = FamilyRelation.objects.filter(from_user=obj).select_related('to_user')
+        return [
+            {
+                'name': f"{rel.to_user.first_name} {rel.to_user.last_name}",
+                'user_id_code': rel.to_user.user_id_code,
+                'relation': rel.relation,
+                'phone': rel.to_user.phone,
+                'to_user_phone': rel.to_user.phone,
+            }
+            for rel in relations
+        ]
 
 
 # ── Incident ──
@@ -60,13 +92,19 @@ class UserProfileMinimalSerializer(serializers.ModelSerializer):
 class IncidentSerializer(GeoModelSerializer):
     distance = serializers.FloatField(read_only=True, required=False)
     assigned_drones = serializers.StringRelatedField(many=True, read_only=True)
-    reporter_profile_detail = UserProfileMinimalSerializer(source='reporter_profile', read_only=True)
+    reporter_profile_detail = serializers.SerializerMethodField()
     authority_detail = UserProfileMinimalSerializer(source='which_authority_took_action', read_only=True)
 
     class Meta:
         model = Incident
         fields = '__all__'
         geo_field = 'location_coordinates'
+
+    def get_reporter_profile_detail(self, obj):
+        profile = obj.reporter_profile or getattr(obj.reporter, 'profile', None)
+        if profile:
+            return UserProfileMinimalSerializer(profile).data
+        return None
 
 
 # ── Drone ──

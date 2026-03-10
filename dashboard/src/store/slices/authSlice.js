@@ -4,6 +4,7 @@ import { authService } from '@services/authService.js'
 const initialState = {
     user: null,
     profile: null,
+    profileFetched: false,
     token: localStorage.getItem('token') || null,
     isAuthenticated: !!localStorage.getItem('token'),
     isLoading: false,
@@ -55,6 +56,7 @@ const authSlice = createSlice({
         logout: (state) => {
             state.user = null
             state.profile = null
+            state.profileFetched = false
             state.token = null
             state.isAuthenticated = false
             localStorage.removeItem('token')
@@ -88,17 +90,27 @@ const authSlice = createSlice({
                 state.error = action.payload
             })
             // Register
+            .addCase(register.pending, (state) => {
+                state.isLoading = true
+                state.error = null
+            })
             .addCase(register.fulfilled, (state, action) => {
+                state.isLoading = false
                 state.isAuthenticated = true
                 state.token = action.payload.token
                 state.user = { username: action.payload.username, id: action.payload.user_id }
             })
             .addCase(register.rejected, (state, action) => {
+                state.isLoading = false
                 state.error = action.payload
             })
             // Profile
             .addCase(fetchProfile.fulfilled, (state, action) => {
                 state.profile = action.payload
+                state.profileFetched = true
+            })
+            .addCase(fetchProfile.rejected, (state) => {
+                state.profileFetched = true
             })
     },
 })

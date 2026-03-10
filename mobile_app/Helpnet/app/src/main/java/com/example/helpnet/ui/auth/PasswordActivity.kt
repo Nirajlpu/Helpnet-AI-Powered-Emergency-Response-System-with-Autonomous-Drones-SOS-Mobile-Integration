@@ -31,6 +31,7 @@ class PasswordActivity : AppCompatActivity() {
                     val stopIntent = Intent(this, EmergencyService::class.java).apply { action = EmergencyService.ACTION_FORCE_STOP }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(stopIntent)
+
                     } else {
                         startService(stopIntent)
                     }

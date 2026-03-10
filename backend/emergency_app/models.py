@@ -4,6 +4,8 @@ from django.contrib.auth.models import User
 import uuid
 from django.utils import timezone
 
+
+
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('CIVILIAN', 'Civilian'),
@@ -24,7 +26,7 @@ class UserProfile(models.Model):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='CIVILIAN')
     phone = models.CharField(max_length=15, blank=True)
     email = models.EmailField(unique=True)
-    age = models.IntegerField()
+    age = models.IntegerField(null=True, blank=True)
     gender = models.CharField(max_length=10, choices=[('MALE', 'Male'), ('FEMALE', 'Female'), ('OTHER', 'Other')], default='MALE')
     is_verified = models.BooleanField(default=False)
     aadhar_card = models.ImageField(upload_to='aadhar_cards/', blank=True)
@@ -133,14 +135,18 @@ class Incident(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255, blank=True)
     description = models.TextField(blank=True)
+    
     reported_medium=models.CharField(max_length=20, choices=REPORTED_MEDIUM_CHOICES, default='APP')
+    #remark to self: add a field to track which authority took action and what action was taken, along with timestamps for each action. This will help in accountability and transparency of the incident resolution process.
     action_taken_by_authority = models.CharField(max_length=20, choices=ACTION_TAKEN_STATUS_CHOICES, default='ACTIVE')
+    timeLine = models.JSONField(default=list, help_text="Chronological log of incident updates")
     which_authority_took_action = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='authority_actions')
     reporter_profile = models.ForeignKey(UserProfile, on_delete=models.SET_NULL, null=True, blank=True, related_name='profile_reported_incidents')
     reporter = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reported_incidents')
     family_members_notified = models.ManyToManyField(UserProfile, blank=True, related_name='notified_incidents')
     is_live_streaming=models.BooleanField(default=False)
     location_coordinates = gis_models.PointField(geography=True)
+    pincode = models.CharField(max_length=10, blank=True, help_text="Pincode derived from incident coordinates")
     address = models.CharField(max_length=255, blank=True)
     severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='MEDIUM')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='ACTIVE')

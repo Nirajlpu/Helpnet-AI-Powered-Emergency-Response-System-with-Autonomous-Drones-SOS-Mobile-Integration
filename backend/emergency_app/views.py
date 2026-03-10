@@ -1,7 +1,26 @@
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
+from rest_framework.authentication import TokenAuthentication
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.authtoken.models import Token as AuthToken
+from rest_framework.exceptions import AuthenticationFailed
+
+
+class BearerOrTokenAuthentication(TokenAuthentication):
+    """Accept both 'Token xxx' and 'Bearer xxx' Authorization headers."""
+    keyword = 'Token'  # default
+
+    def authenticate(self, request):
+        auth = request.META.get('HTTP_AUTHORIZATION', '').split()
+        if len(auth) == 2 and auth[0].lower() in ('token', 'bearer'):
+            try:
+                token = AuthToken.objects.select_related('user').get(key=auth[1])
+                return (token.user, token)
+            except AuthToken.DoesNotExist:
+                raise AuthenticationFailed('Invalid token.')
+        return None
+import uuid
 from django.contrib.gis.geos import Point
 from django.contrib.gis.db.models.functions import Distance
 from django.utils import timezone
@@ -14,6 +33,7 @@ import json
 import base64
 import time
 import os
+import requests
 import threading
 import glob
 
@@ -281,12 +301,27 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def me(self, request):
-        """Get the currently logged-in user's profile."""
-        try:
-            profile = UserProfile.objects.get(user=request.user)
-            return Response(UserProfileSerializer(profile).data)
-        except UserProfile.DoesNotExist:
-            return Response({'error': 'Profile not found'}, status=404)
+        """Get the currently logged-in user's profile, auto-creating if needed."""
+        profile, created = UserProfile.objects.get_or_create(
+            user=request.user,
+            defaults={
+                'user_id_code': _generate_user_id_code(),
+                'first_name': request.user.first_name or request.user.username,
+                'last_name': request.user.last_name or '',
+                'email': request.user.email or f'{request.user.username}@helpnet.local',
+            }
+        )
+        return Response(UserProfileSerializer(profile).data)
+
+
+def _generate_user_id_code():
+    import random
+    date_str = timezone.now().strftime('%Y%m%d')
+    for _ in range(100):
+        code = f'HN-{date_str}-{random.randint(1, 999):03d}'
+        if not UserProfile.objects.filter(user_id_code=code).exists():
+            return code
+    return f'HN-{date_str}-{uuid.uuid4().hex[:6]}'
 
 
 # ═══════════════════════════════════════════════════════
@@ -299,9 +334,17 @@ class IncidentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        
         queryset = Incident.objects.select_related(
             'reporter', 'reporter_profile', 'which_authority_took_action'
         ).prefetch_related('assigned_drones', 'responders_assigned', 'family_members_notified')
+
+
+
+        # Filter by dashboard user's pincode — only show incidents in their area
+        user_profile = getattr(self.request.user, 'profile', None)
+        if user_profile and user_profile.pincode:
+            queryset = queryset.filter(pincode=user_profile.pincode)
 
         # Status filter
         status_filter = self.request.query_params.get('status')
@@ -345,13 +388,85 @@ class IncidentViewSet(viewsets.ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        """Auto-set reporter and reporter_profile on creation."""
+        """Auto-set reporter, reporter_profile, and pincode on creation."""
         user = self.request.user
-        profile = getattr(user.profile, 'profile', None)
-        serializer.save(
+        profile, _ = UserProfile.objects.get_or_create(
+            user=user,
+            defaults={
+                'user_id_code': _generate_user_id_code(),
+                'first_name': user.first_name or user.username,
+                'last_name': user.last_name or '',
+                'email': user.email or f'{user.username}@helpnet.local',
+            }
+        )
+        instance = serializer.save(
             reporter=user,
             reporter_profile=profile,
         )
+        # Derive pincode and address from incident coordinates
+        if instance.location_coordinates:
+            update_fields = []
+            if not instance.pincode:
+                pincode = get_pincode_from_coordinates(
+                    instance.location_coordinates.y,
+                    instance.location_coordinates.x,
+                )
+                if pincode:
+                    instance.pincode = pincode
+                    update_fields.append('pincode')
+            if not instance.address:
+                address = get_address_from_coordinates(
+                    instance.location_coordinates.y,
+                    instance.location_coordinates.x,
+                )
+                if address:
+                    instance.address = address
+                    update_fields.append('address')
+            if update_fields:
+                instance.save(update_fields=update_fields)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        # Auto-set which_authority_took_action to the current user's profile
+        if 'action_taken_by_authority' in serializer.validated_data:
+            profile = getattr(self.request.user, 'profile', None)
+            if profile and instance.which_authority_took_action != profile:
+                instance.which_authority_took_action = profile
+                instance.save(update_fields=['which_authority_took_action'])
+
+            # Append timeline entry for the authority action
+            remark = self.request.data.get('authority_remark', '')
+            action_label = dict(Incident.ACTION_TAKEN_STATUS_CHOICES).get(
+                instance.action_taken_by_authority, instance.action_taken_by_authority
+            )
+            authority_name = f'{profile.first_name} {profile.last_name}'.strip() if profile else self.request.user.username
+            timeline = instance.timeLine or []
+            entry = {
+                'time': timezone.now().isoformat(),
+                'label': f'Authority Action: {action_label}',
+                'detail': f'{authority_name} set status to {action_label}' + (f' — "{remark}"' if remark else ''),
+                'icon': '⚖️',
+                'color': '#1976d2',
+            }
+            timeline.append(entry)
+            instance.timeLine = timeline
+            instance.save(update_fields=['timeLine'])
+
+            # Auto-resolve when action is COMPLETED or FALSE_ALARM
+            if instance.action_taken_by_authority in ('COMPLETED', 'FALSE_ALARM') and instance.status != 'RESOLVED':
+                reason = 'Completed' if instance.action_taken_by_authority == 'COMPLETED' else 'False Alarm'
+                instance.status = 'RESOLVED'
+                instance.resolved_at = timezone.now()
+                instance.save(update_fields=['status', 'resolved_at'])
+                # Add resolved timeline entry
+                instance.timeLine.append({
+                    'time': timezone.now().isoformat(),
+                    'label': 'Incident Resolved',
+                    'detail': f'Auto-resolved after {authority_name} marked action as {reason}',
+                    'icon': '✅',
+                    'color': '#4caf50',
+                })
+                instance.save(update_fields=['timeLine'])
 
     @action(detail=True, methods=['post'])
     def dispatch_drone(self, request, pk=None):
@@ -559,6 +674,7 @@ class IncidentViewSet(viewsets.ModelViewSet):
             frame_data = frame_file.read()
         elif frame_b64:
             frame_data = base64.b64decode(frame_b64)
+
         else:
             return Response({"error": "No frame data"}, status=status.HTTP_400_BAD_REQUEST)
         _live_drone_frames[str(pk)] = {'data': frame_data, 'timestamp': time.time()}
@@ -880,9 +996,12 @@ class DroneViewSet(viewsets.ModelViewSet):
 # ═══════════════════════════════════════════════════════
 
 @api_view(['POST'])
+@authentication_classes([BearerOrTokenAuthentication])
 @permission_classes([AllowAny])
 def trigger_sos(request):
     """Public SOS endpoint — creates an incident and auto-dispatches if critical."""
+    print(f"[trigger_sos] Auth header: {request.META.get('HTTP_AUTHORIZATION', 'NONE')}")
+    print(f"[trigger_sos] User: {request.user}, authenticated: {request.user.is_authenticated}")
     serializer = SOSRequestSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -898,20 +1017,46 @@ def trigger_sos(request):
 
     # Link reporter profile if user is authenticated
     reporter = request.user if request.user.is_authenticated else None
-    reporter_profile = getattr(reporter.UserProfile, 'profile', None) if reporter else None
+    reporter_profile = None
+    if reporter:
+        print(f"[trigger_sos] Authenticated reporter: {reporter.username}")
+        reporter_profile, _ = UserProfile.objects.get_or_create(
+            user=reporter,
+            defaults={
+                'user_id_code': _generate_user_id_code(),
+                'first_name': reporter.first_name or reporter.username,
+                'last_name': reporter.last_name or '',
+                'email': reporter.email or f'{reporter.username}@helpnet.local',
+            }
+        )
+
+    # Derive pincode and address from coordinates
+    incident_pincode = get_pincode_from_coordinates(data['latitude'], data['longitude']) or ''
+    incident_address = get_address_from_coordinates(data['latitude'], data['longitude'])
 
     incident = Incident.objects.create(
         title=data.get('title', ai_result.get('title', 'Emergency SOS')),
         description=data.get('description', ai_result.get('transcription', 'Emergency SOS triggered')),
         location_coordinates=point,
+        pincode=incident_pincode,
+        address=incident_address,
         severity=ai_result.get('severity', 'HIGH'),
         status='REPORTED',
         incident_type=data.get('incident_type', ai_result.get('type', 'OTHER')),
         reported_medium=data.get('reported_medium', 'SOS_BUTTON'),
-        ai_classification=ai_result,
         reporter=reporter,
         reporter_profile=reporter_profile,
+        timeLine=[{
+            "time": timezone.now().isoformat(),
+            "label": "Incident Reported",
+            "detail": f"{data.get('title', 'Emergency')} reported via HelpNet SOS",
+            "icon": "📋",
+            "color": "#ff9800",
+        }]
     )
+
+   
+ 
 
     # Auto-dispatch for critical incidents
     if incident.severity in ['HIGH', 'CRITICAL']:
@@ -928,17 +1073,62 @@ def trigger_sos(request):
         'help_dispatched': incident.severity in ['HIGH', 'CRITICAL'],
     }, status=status.HTTP_201_CREATED)
 
+import requests
+
+def get_pincode_from_coordinates(lat, lon):
+    url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&addressdetails=1"
+    
+    headers = {
+        "User-Agent": "helpnet"
+    }
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        return data.get("address", {}).get("postcode")
+
+    return None
+
+
+def get_address_from_coordinates(lat, lon):
+    """Reverse-geocode coordinates into a human-readable address string."""
+    url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&addressdetails=1"
+    headers = {"User-Agent": "helpnet"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            return resp.json().get("display_name", "")
+    except Exception:
+        pass
+    return ""
 
 def notify_nearby_responders(incident):
     """Find and notify verified responders within 10km of the incident."""
-    nearby = Responder.objects.filter(
+  
+    incident_pincode = get_pincode_from_coordinates(incident.location_coordinates.y, incident.location_coordinates.x)
+
+    nearby = UserProfile.objects.filter(
+        Q(role='RESPONDER') | Q(role='VOLUNTEER')|Q(role='POLICE_STATION'),
         is_verified=True,
-        is_available=True,
-        current_location__distance_lte=(incident.location_coordinates, 10000)
+        pincode=incident_pincode if incident_pincode else None,
+
+
+        # current_location__distance_lte=(incident.location_coordinates, 10000)
     )
 
     for responder in nearby:
         # TODO: Send push notification / WebSocket alert to each responder
+        #  use this { time: new Date(base.getTime() + 60000), label: 'Alert Dispatched', detail: 'Emergency alert sent to nearest response unit', icon: '🚨', color: '#f44336' },
+        incident.timeLine.append({
+                "time": timezone.now().isoformat(),
+                "label": "Alert Dispatched",
+                "detail": f" Emergency alert sent to nearest response unit.{responder.user.first_name} {responder.user.last_name} dispatched to location {incident.location_coordinates}",
+                "icon": "🚨",
+                "color": "#f44336",
+            })
+
+        incident.save(update_fields=["timeLine"]) 
         pass
 
 

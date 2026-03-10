@@ -2,9 +2,11 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useSelector, useDispatch } from 'react-redux';
 import { fetchIncidents } from '@store/slices/incidentSlice.js';
+import { incidentService } from '@services/incidentService.js';
 import {
     Box, Typography, Chip, Paper, IconButton, Button, Tab, Tabs,
-    ToggleButton, ToggleButtonGroup, LinearProgress, Divider
+    ToggleButton, ToggleButtonGroup, LinearProgress, Divider,
+    Select, MenuItem, FormControl, InputLabel, Alert, CircularProgress, TextField,
 } from '@mui/material';
 import {
     Fullscreen as FullscreenIcon,
@@ -34,6 +36,7 @@ import {
     PlayArrow as PlayIcon,
     Videocam as VideocamIcon,
     Download as DownloadIcon,
+    Gavel as GavelIcon,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import L from 'leaflet';
@@ -46,8 +49,18 @@ const getSeverityColor = (severity) => ({
     'LOW': '#00cc00',
 }[severity] || '#999');
 
-// Timeline events generator
+// Timeline events — use real backend timeLine data if available, otherwise fall back to simulated
 const getTimelineEvents = (incident) => {
+    if (incident.timeLine && incident.timeLine.length > 0) {
+        return incident.timeLine.map(e => ({
+            time: new Date(e.time),
+            label: e.label,
+            detail: e.detail,
+            icon: e.icon || '📋',
+            color: e.color || '#ff9800',
+        }));
+    }
+    // Fallback: simulated timeline from created_at
     const base = new Date(incident.created_at);
     return [
         { time: new Date(base - 0), label: 'Incident Reported', detail: `${incident.title} reported via HelpNet app`, icon: '📋', color: '#ff9800' },
@@ -96,6 +109,14 @@ const IncidentVideoPage = () => {
     const [droneLastRecUrl, setDroneLastRecUrl] = useState(null);
     const droneStreamAliveRef = useRef(false);
     const droneStaleCountRef = useRef(0);
+    // Authority action state
+    const [actionStatus, setActionStatus] = useState(incident?.action_taken_by_authority || 'ACTIVE');
+    const [actionRemark, setActionRemark] = useState('');
+    const [actionSaving, setActionSaving] = useState(false);
+    const [actionSuccess, setActionSuccess] = useState(null);
+    useEffect(() => {
+        if (incident?.action_taken_by_authority) setActionStatus(incident.action_taken_by_authority);
+    }, [incident?.action_taken_by_authority]);
     const phonePollerRunningRef = useRef(false);
     const dronePollerRunningRef = useRef(false);
     const phoneStartPollerRef = useRef(null);
@@ -870,23 +891,31 @@ const IncidentVideoPage = () => {
                                                 </Box>
                                                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, gridColumn: '1 / -1' }}>
                                                     <HomeIcon sx={{ fontSize: 18, color: 'text.secondary', mt: 0.3 }} />
-                                                    <Typography variant="body2">{reporterInfo.address || reporterInfo.village_city || 'N/A'}</Typography>
+                                                    <Typography variant="body2">
+                                                        {[reporterInfo.village_city, reporterInfo.district, reporterInfo.state, reporterInfo.pincode].filter(Boolean).join(', ') || 'N/A'}
+                                                    </Typography>
                                                 </Box>
                                             </Box>
                                         </Box>
                                     </Box>
                                 </Paper>
 
-                                {/* Location with Google Maps link */}
-                                {(reporterInfo.location || reporterInfo.location_coordinates) && (() => {
-                                    const rCoords = reporterInfo.location_coordinates?.coordinates || [reporterInfo.location?.lng, reporterInfo.location?.lat];
+                                {/* Current Location from Incident */}
+                                {(() => {
+                                    const incCoords = incident?.location_coordinates?.coordinates;
+                                    const rCoords = incCoords || reporterInfo.location_coordinates?.coordinates || [reporterInfo.location?.lng, reporterInfo.location?.lat];
                                     if (!rCoords || rCoords.includes(undefined)) return null;
                                     return (
                                         <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, mb: 2 }}>
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                                                 <LocationIcon sx={{ fontSize: 20, color: '#e53935' }} />
-                                                <Typography variant="subtitle2" fontWeight="bold">Current Location</Typography>
+                                                <Typography variant="subtitle2" fontWeight="bold">Current Location (at time of incident)</Typography>
                                             </Box>
+                                            {incident?.address && (
+                                                <Typography variant="body2" sx={{ mb: 1 }}>
+                                                    📍 {incident.address}
+                                                </Typography>
+                                            )}
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                                                 <Typography variant="body2" color="text.secondary">
                                                     Lat: {rCoords[1]?.toFixed(4)}, Lng: {rCoords[0]?.toFixed(4)}
@@ -917,14 +946,24 @@ const IncidentVideoPage = () => {
                                             {reporterInfo.family_members.map((member, i) => (
                                                 <Paper key={i} variant="outlined" sx={{ p: 1.5, borderRadius: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}>
                                                     <Box sx={{
-                                                        width: 36, height: 36, borderRadius: '50%', bgcolor: 'primary.main', color: '#fff',
-                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, flexShrink: 0
+                                                        width: 40, height: 40, borderRadius: '50%', bgcolor: 'primary.main', color: '#fff',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 700, flexShrink: 0
                                                     }}>
                                                         {member.name.charAt(0)}
                                                     </Box>
-                                                    <Box sx={{ minWidth: 0 }}>
-                                                        <Typography variant="body2" fontWeight={600} noWrap>{member.name}</Typography>
-                                                        <Typography variant="caption" color="text.secondary">{member.relation || member.role} · {member.phone || member.to_user_phone}</Typography>
+                                                    <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                            <Typography variant="body2" fontWeight={600} noWrap>{member.name}</Typography>
+                                                            <Chip label={member.relation || member.role} size="small" variant="outlined" color="primary" sx={{ height: 20, fontSize: '0.65rem' }} />
+                                                        </Box>
+                                                        {member.user_id_code && (
+                                                            <Typography variant="caption" sx={{ color: 'primary.main', fontWeight: 500, fontSize: '0.7rem', letterSpacing: 0.3 }}>
+                                                                {member.user_id_code}
+                                                            </Typography>
+                                                        )}
+                                                        <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                            📞 {member.phone || member.to_user_phone || 'N/A'}
+                                                        </Typography>
                                                     </Box>
                                                 </Paper>
                                             ))}
@@ -937,6 +976,108 @@ const IncidentVideoPage = () => {
                         ) : (
                             <Typography variant="body2" color="text.secondary">Reporter details not available.</Typography>
                         )}
+                    </Box>
+                )}
+
+                {/* AUTHORITY ACTION TAB */}
+                {activeTab === 0 && (
+                    <Box sx={{ px: 3, pb: 3 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <GavelIcon sx={{ fontSize: 20 }} /> Authority Action
+                        </Typography>
+                        <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flex: 1, minWidth: 200 }}>
+                                    <Typography variant="body2" fontWeight={600} sx={{ whiteSpace: 'nowrap' }}>Status:</Typography>
+                                    <Chip
+                                        label={incident?.status || 'N/A'}
+                                        size="small"
+                                        color={incident?.status === 'RESOLVED' ? 'success' : 'warning'}
+                                        variant="filled"
+                                    />
+                                </Box>
+                                {incident?.authority_detail && (
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <Typography variant="body2" color="text.secondary">Handled by:</Typography>
+                                        <Chip label={incident.authority_detail.name} size="small" variant="outlined" />
+                                    </Box>
+                                )}
+                            </Box>
+
+                            <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 2, mt: 2.5, flexWrap: 'wrap' }}>
+                                <FormControl size="small" sx={{ minWidth: 220 }}>
+                                    <InputLabel>Action Taken</InputLabel>
+                                    <Select
+                                        value={actionStatus}
+                                        label="Action Taken"
+                                        onChange={(e) => { setActionStatus(e.target.value); setActionSuccess(null); }}
+                                        disabled={incident?.status === 'RESOLVED'}
+                                    >
+                                        <MenuItem value="ACTIVE">Active</MenuItem>
+                                        <MenuItem value="UNDER_REVIEW">Under Review</MenuItem>
+                                        <MenuItem value="IN_PROGRESS">In Progress</MenuItem>
+                                        <MenuItem value="COMPLETED">Completed (Auto-Resolves)</MenuItem>
+                                        <MenuItem value="FALSE_ALARM">False Alarm</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Box>
+
+                            <TextField
+                                fullWidth
+                                multiline
+                                minRows={2}
+                                maxRows={4}
+                                size="small"
+                                label="Remark"
+                                placeholder="Add your remark / observation about this action..."
+                                value={actionRemark}
+                                onChange={(e) => setActionRemark(e.target.value)}
+                                disabled={incident?.status === 'RESOLVED'}
+                                sx={{ mt: 2 }}
+                            />
+
+                            <Box sx={{ mt: 2 }}>
+                                <Button
+                                    variant="contained"
+                                    size="small"
+                                    disabled={actionSaving || incident?.status === 'RESOLVED' || (actionStatus === incident?.action_taken_by_authority && !actionRemark.trim())}
+                                    startIcon={actionSaving ? <CircularProgress size={16} /> : <GavelIcon />}
+                                    onClick={async () => {
+                                        setActionSaving(true);
+                                        setActionSuccess(null);
+                                        try {
+                                            await incidentService.update(incident.id, {
+                                                action_taken_by_authority: actionStatus,
+                                                authority_remark: actionRemark.trim(),
+                                            });
+                                            dispatch(fetchIncidents());
+                                            setActionSuccess('Action updated successfully' + (actionStatus === 'COMPLETED' ? ' — incident resolved.' : '.'));
+                                            setActionRemark('');
+                                        } catch (err) {
+                                            setActionSuccess('Failed to update: ' + (err.response?.data?.detail || err.message));
+                                        } finally {
+                                            setActionSaving(false);
+                                        }
+                                    }}
+                                    sx={{ textTransform: 'none', fontWeight: 600 }}
+                                >
+                                    Update Action
+                                </Button>
+                            </Box>
+
+                            {actionSuccess && (
+                                <Alert severity={actionSuccess.startsWith('Failed') ? 'error' : 'success'} sx={{ mt: 2 }}>
+                                    {actionSuccess}
+                                </Alert>
+                            )}
+
+                            {incident?.status === 'RESOLVED' && (
+                                <Alert severity="info" sx={{ mt: 2 }}>
+                                    This incident has been resolved{incident.resolved_at ? ` on ${format(new Date(incident.resolved_at), 'MMM d, yyyy, h:mm a')}` : ''}.
+                                </Alert>
+                            )}
+                        </Paper>
                     </Box>
                 )}
 
