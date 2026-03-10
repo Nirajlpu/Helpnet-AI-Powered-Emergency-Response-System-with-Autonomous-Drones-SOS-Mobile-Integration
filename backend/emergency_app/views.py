@@ -4,7 +4,7 @@ from rest_framework.authentication import TokenAuthentication
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.authtoken.models import Token as AuthToken
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 
 
 class BearerOrTokenAuthentication(TokenAuthentication):
@@ -333,18 +333,70 @@ class IncidentViewSet(viewsets.ModelViewSet):
     serializer_class = IncidentSerializer
     permission_classes = [IsAuthenticated]
 
+    def _filter_by_role(self, queryset):
+        """Apply role-based access control filtering to a queryset."""
+        user = self.request.user
+        profile = getattr(user, 'profile', None)
+        if not profile:
+            return queryset.none()
+
+        role = profile.role
+
+        if role in ('ADMIN', 'CENTRAL'):
+            # Full access to all incidents
+            pass
+        elif role == 'STATE':
+            # Only incidents in their state
+            if profile.state:
+                queryset = queryset.filter(state__iexact=profile.state)
+            else:
+                queryset = queryset.none()
+        elif role == 'DISTRICT':
+            # Only incidents in their district
+            if profile.district:
+                queryset = queryset.filter(district__iexact=profile.district)
+            else:
+                queryset = queryset.none()
+        elif role == 'POLICE_STATION':
+            # Only incidents in their pincode area
+            if profile.pincode:
+                queryset = queryset.filter(pincode=profile.pincode)
+            else:
+                queryset = queryset.none()
+        elif role in ('VOLUNTEER', 'RESPONDER'):
+            # Assigned incidents + own reported + incidents of people who added me as family
+            family_profile_ids = list(
+                FamilyRelation.objects.filter(to_user=profile)
+                .values_list('from_user_id', flat=True)
+            )
+            queryset = queryset.filter(
+                Q(reporter=user)
+                | Q(reporter_profile=profile)
+                | Q(reporter_profile_id__in=family_profile_ids)
+                | Q(responders_assigned=user)
+            ).distinct()
+        else:
+            # CIVILIAN — own incidents + incidents of people who added me as family
+            family_profile_ids = list(
+                FamilyRelation.objects.filter(to_user=profile)
+                .values_list('from_user_id', flat=True)
+            )
+            queryset = queryset.filter(
+                Q(reporter=user)
+                | Q(reporter_profile=profile)
+                | Q(reporter_profile_id__in=family_profile_ids)
+            ).distinct()
+
+        return queryset
+
     def get_queryset(self):
         
         queryset = Incident.objects.select_related(
             'reporter', 'reporter_profile', 'which_authority_took_action'
         ).prefetch_related('assigned_drones', 'responders_assigned', 'family_members_notified')
 
-
-
-        # Filter by dashboard user's pincode — only show incidents in their area
-        user_profile = getattr(self.request.user, 'profile', None)
-        if user_profile and user_profile.pincode:
-            queryset = queryset.filter(pincode=user_profile.pincode)
+        # ── Role-based access control ──
+        queryset = self._filter_by_role(queryset)
 
         # Status filter
         status_filter = self.request.query_params.get('status')
@@ -426,6 +478,12 @@ class IncidentViewSet(viewsets.ModelViewSet):
                 instance.save(update_fields=update_fields)
 
     def perform_update(self, serializer):
+        # Block civilians from performing authority actions
+        if 'action_taken_by_authority' in serializer.validated_data:
+            profile = getattr(self.request.user, 'profile', None)
+            if profile and profile.role == 'CIVILIAN':
+                raise PermissionDenied('Civilians cannot perform authority actions.')
+
         instance = serializer.save()
         # Auto-set which_authority_took_action to the current user's profile
         if 'action_taken_by_authority' in serializer.validated_data:
@@ -936,6 +994,207 @@ class IncidentViewSet(viewsets.ModelViewSet):
             'resolved': resolved,
             'by_severity': by_severity,
             'by_type': by_type,
+        })
+
+    @action(detail=False, methods=['get'])
+    def analytics(self, request):
+        """Comprehensive analytics data for the Analytics dashboard."""
+        from django.db.models.functions import TruncDate, TruncMonth
+        from collections import Counter
+
+        incidents = self._filter_by_role(Incident.objects.all())
+
+        # ── 1. Overview stats ──
+        total = incidents.count()
+        active = incidents.exclude(status='RESOLVED').count()
+        resolved = incidents.filter(status='RESOLVED').count()
+        avg_resolution_hours = None
+        resolved_with_times = incidents.filter(resolved_at__isnull=False, created_at__isnull=False)
+        if resolved_with_times.exists():
+            from django.db.models import Avg, F, ExpressionWrapper, DurationField
+            dur = resolved_with_times.annotate(
+                res_time=ExpressionWrapper(F('resolved_at') - F('created_at'), output_field=DurationField())
+            ).aggregate(avg=Avg('res_time'))['avg']
+            if dur:
+                avg_resolution_hours = round(dur.total_seconds() / 3600, 1)
+
+        # ── 2. By severity ──
+        by_severity = {}
+        for code, label in Incident.SEVERITY_CHOICES:
+            by_severity[code] = incidents.filter(severity=code).count()
+
+        # ── 3. By incident type ──
+        by_type = {}
+        for code, label in Incident.INCIDENT_TYPE_CHOICES:
+            c = incidents.filter(incident_type=code).count()
+            if c > 0:
+                by_type[code] = c
+
+        # ── 4. By status ──
+        by_status = {}
+        for code, label in Incident.STATUS_CHOICES:
+            by_status[code] = incidents.filter(status=code).count()
+
+        # ── 5. By action taken ──
+        by_action = {}
+        for code, label in Incident.ACTION_TAKEN_STATUS_CHOICES:
+            c = incidents.filter(action_taken_by_authority=code).count()
+            if c > 0:
+                by_action[code] = c
+
+        # ── 6. By reported medium ──
+        by_medium = {}
+        for code, label in Incident.REPORTED_MEDIUM_CHOICES:
+            c = incidents.filter(reported_medium=code).count()
+            if c > 0:
+                by_medium[code] = c
+
+        # ── 7. Hotspot areas — incidents grouped by pincode ──
+        hotspot_pincode = list(
+            incidents.exclude(pincode='').values('pincode')
+            .annotate(count=Count('id')).order_by('-count')[:15]
+        )
+
+        # ── 8. Hotspot by district ──
+        hotspot_district = list(
+            incidents.exclude(district='').values('district')
+            .annotate(count=Count('id')).order_by('-count')[:15]
+        )
+
+        # ── 9. Hotspot by state ──
+        hotspot_state = list(
+            incidents.exclude(state='').values('state')
+            .annotate(count=Count('id')).order_by('-count')[:10]
+        )
+
+        # ── 10. Top reporters ──
+        top_reporters = list(
+            incidents.filter(reporter_profile__isnull=False)
+            .values('reporter_profile__first_name', 'reporter_profile__last_name',
+                    'reporter_profile__user_id_code', 'reporter_profile__phone')
+            .annotate(count=Count('id')).order_by('-count')[:10]
+        )
+
+        # ── 11. Volunteer / Responder participation ──
+        # Who has been assigned as authority most often
+        authority_participation = list(
+            incidents.filter(which_authority_took_action__isnull=False)
+            .values('which_authority_took_action__first_name',
+                    'which_authority_took_action__last_name',
+                    'which_authority_took_action__role',
+                    'which_authority_took_action__user_id_code')
+            .annotate(count=Count('id')).order_by('-count')[:10]
+        )
+
+        # Volunteer stats
+        volunteer_profiles = UserProfile.objects.filter(
+            Q(role='VOLUNTEER') | Q(is_volunteer=True)
+        )
+        volunteer_stats = {
+            'total_volunteers': volunteer_profiles.count(),
+            'verified_volunteers': volunteer_profiles.filter(is_verified=True).count(),
+        }
+
+        # Responder stats
+        responder_count = Responder.objects.count()
+        responder_available = Responder.objects.filter(is_available=True).count()
+        top_responders = list(
+            Responder.objects.order_by('-response_count')[:10]
+            .values('user__first_name', 'user__last_name', 'response_count',
+                    'rating', 'specializations', 'is_available')
+        )
+
+        # ── 12. Suspect data ──
+        suspect_total = Suspect.objects.count()
+        suspect_by_risk = {}
+        for code in ['LOW', 'MEDIUM', 'HIGH']:
+            suspect_by_risk[code] = Suspect.objects.filter(risk_level=code).count()
+
+        # ── 13. Timeline — incidents per day (last 30 days) ──
+        thirty_days_ago = timezone.now() - timezone.timedelta(days=30)
+        daily_counts = list(
+            incidents.filter(created_at__gte=thirty_days_ago)
+            .annotate(date=TruncDate('created_at'))
+            .values('date').annotate(count=Count('id')).order_by('date')
+        )
+        # Serialize dates
+        for entry in daily_counts:
+            entry['date'] = entry['date'].isoformat()
+
+        # ── 14. Monthly trend (last 12 months) ──
+        twelve_months_ago = timezone.now() - timezone.timedelta(days=365)
+        monthly_counts = list(
+            incidents.filter(created_at__gte=twelve_months_ago)
+            .annotate(month=TruncMonth('created_at'))
+            .values('month').annotate(count=Count('id')).order_by('month')
+        )
+        for entry in monthly_counts:
+            entry['month'] = entry['month'].isoformat()
+
+        # ── 15. Severity trend (daily, last 30 days) ──
+        severity_trend = []
+        for code, label in Incident.SEVERITY_CHOICES:
+            entries = list(
+                incidents.filter(created_at__gte=thirty_days_ago, severity=code)
+                .annotate(date=TruncDate('created_at'))
+                .values('date').annotate(count=Count('id')).order_by('date')
+            )
+            for e in entries:
+                e['date'] = e['date'].isoformat()
+            severity_trend.append({'severity': code, 'data': entries})
+
+        # ── 16. Geo points for heatmap ──
+        geo_points = list(
+            incidents.exclude(location_coordinates__isnull=True)
+            .values_list('location_coordinates', flat=True)[:500]
+        )
+        heatmap_points = []
+        for pt in geo_points:
+            if pt:
+                heatmap_points.append({'lat': pt.y, 'lng': pt.x})
+
+        # ── 17. User stats ──
+        user_stats = {
+            'total_users': UserProfile.objects.count(),
+            'by_role': {},
+        }
+        for code, label in UserProfile.ROLE_CHOICES:
+            c = UserProfile.objects.filter(role=code).count()
+            if c > 0:
+                user_stats['by_role'][code] = c
+
+        return Response({
+            'overview': {
+                'total': total,
+                'active': active,
+                'resolved': resolved,
+                'avg_resolution_hours': avg_resolution_hours,
+            },
+            'by_severity': by_severity,
+            'by_type': by_type,
+            'by_status': by_status,
+            'by_action': by_action,
+            'by_medium': by_medium,
+            'hotspot_pincode': hotspot_pincode,
+            'hotspot_district': hotspot_district,
+            'hotspot_state': hotspot_state,
+            'top_reporters': top_reporters,
+            'authority_participation': authority_participation,
+            'volunteer_stats': volunteer_stats,
+            'responder_stats': {
+                'total': responder_count,
+                'available': responder_available,
+                'top_responders': top_responders,
+            },
+            'suspect_stats': {
+                'total': suspect_total,
+                'by_risk': suspect_by_risk,
+            },
+            'daily_trend': daily_counts,
+            'monthly_trend': monthly_counts,
+            'severity_trend': severity_trend,
+            'heatmap_points': heatmap_points,
+            'user_stats': user_stats,
         })
 
 

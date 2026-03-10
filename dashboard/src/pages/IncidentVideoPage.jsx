@@ -78,6 +78,8 @@ const IncidentVideoPage = () => {
     const { items: incidents, isLoading, usingLiveData, error } = useSelector((state) => state.incidents || {});
     const { items: drones } = useSelector((state) => state.drones || {});
     const themeMode = useSelector((state) => state.ui.themeMode);
+    const userProfile = useSelector((state) => state.auth.profile);
+    const isCivilian = userProfile?.role === 'CIVILIAN';
     const incident = (incidents || []).find(inc => String(inc.id) === id);
     const assignedDrone = (drones || []).find(d => Number(d.assignedIncidentId) === Number(incident?.id));
     const reporterInfo = incident?.reporter_profile_detail || (typeof incident?.reporter === 'object' ? incident.reporter : null);
@@ -980,7 +982,15 @@ const IncidentVideoPage = () => {
                 )}
 
                 {/* AUTHORITY ACTION TAB */}
-                {activeTab === 0 && (
+                {activeTab === 0 && isCivilian && (
+                    <Box sx={{ px: 3, pb: 3 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        <Alert severity="info" sx={{ borderRadius: 2 }}>
+                            Authority actions are only available to authorized personnel (Police Station, District, State, Central operators and Admins).
+                        </Alert>
+                    </Box>
+                )}
+                {activeTab === 0 && !isCivilian && (
                     <Box sx={{ px: 3, pb: 3 }}>
                         <Divider sx={{ mb: 2 }} />
                         <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>

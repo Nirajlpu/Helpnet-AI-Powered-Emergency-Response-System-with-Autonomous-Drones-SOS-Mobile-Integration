@@ -34,4 +34,7 @@ export const incidentService = {
     // POST /api/incidents/:id/notify_family/
     notifyFamily: (incidentId) =>
         api.post(`/incidents/${incidentId}/notify_family/`),
+
+    // GET /api/incidents/analytics/
+    getAnalytics: () => api.get('/incidents/analytics/'),
 }
