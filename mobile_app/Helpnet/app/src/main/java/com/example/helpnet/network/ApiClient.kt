@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 
 object ApiClient {
     // For emulator use 10.0.2.2, for LAN use Mac IP, for mobile data use ngrok URL
-    const val BASE_URL = ""
+    const val BASE_URL = "https://newfangled-hayes-tensible.ngrok-free.dev"
 
     private val retryInterceptor = Interceptor { chain ->
         var attempt = 0

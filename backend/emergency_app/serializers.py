@@ -9,10 +9,11 @@ from .models import Incident, Drone, Suspect, Evidence, Responder, UserProfile, 
 class FamilyRelationSerializer(serializers.ModelSerializer):
     to_user_name = serializers.SerializerMethodField()
     to_user_phone = serializers.SerializerMethodField()
+    to_user_avatar = serializers.SerializerMethodField()
 
     class Meta:
         model = FamilyRelation
-        fields = ['id', 'from_user', 'to_user', 'relation', 'to_user_name', 'to_user_phone']
+        fields = ['id', 'from_user', 'to_user', 'relation', 'to_user_name', 'to_user_phone', 'to_user_avatar']
 
     def get_to_user_name(self, obj):
         return f"{obj.to_user.first_name} {obj.to_user.last_name}"
@@ -20,10 +21,20 @@ class FamilyRelationSerializer(serializers.ModelSerializer):
     def get_to_user_phone(self, obj):
         return obj.to_user.phone
 
+    def get_to_user_avatar(self, obj):
+        request = self.context.get('request')
+        avatar = obj.to_user.avatar
+        if avatar and hasattr(avatar, 'url'):
+            if request:
+                return request.build_absolute_uri(avatar.url)
+            return avatar.url
+        return None
+
 
 class UserProfileSerializer(GeoModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     family_relations = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
@@ -37,9 +48,20 @@ class UserProfileSerializer(GeoModelSerializer):
         geo_field = 'location_coordinates'
         read_only_fields = ['user_id_code', 'created_at']
 
+    def get_avatar(self, obj):  # <-- Add this method
+        request = self.context.get('request')
+        print(f"DEBUG get_avatar: request={request}, type={type(request)}")
+        if obj.avatar and hasattr(obj.avatar, 'url'):
+            if request:
+                res = request.build_absolute_uri(obj.avatar.url)
+                print(f"DEBUG get_avatar: built_uri={res}")
+                return res
+            return obj.avatar.url
+        return None
+    
     def get_family_relations(self, obj):
         relations = FamilyRelation.objects.filter(from_user=obj)
-        return FamilyRelationSerializer(relations, many=True).data
+        return FamilyRelationSerializer(relations, many=True, context=self.context).data
 
     def update(self, instance, validated_data):
         instance = super().update(instance, validated_data)
@@ -65,6 +87,8 @@ class UserProfileMinimalSerializer(serializers.ModelSerializer):
     name = serializers.SerializerMethodField()
     family_members = serializers.SerializerMethodField()
 
+    avatar = serializers.SerializerMethodField()
+
     class Meta:
         model = UserProfile
         fields = ['id', 'user_id_code', 'name', 'phone', 'email', 'role', 'avatar',
@@ -72,6 +96,14 @@ class UserProfileMinimalSerializer(serializers.ModelSerializer):
 
     def get_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
+
+    def get_avatar(self, obj):
+        request = self.context.get('request')
+        if obj.avatar and hasattr(obj.avatar, 'url'):
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return None
 
     def get_family_members(self, obj):
         relations = FamilyRelation.objects.filter(from_user=obj).select_related('to_user')
@@ -103,7 +135,7 @@ class IncidentSerializer(GeoModelSerializer):
     def get_reporter_profile_detail(self, obj):
         profile = obj.reporter_profile or getattr(obj.reporter, 'profile', None)
         if profile:
-            return UserProfileMinimalSerializer(profile).data
+            return UserProfileMinimalSerializer(profile, context=self.context).data
         return None
 
 

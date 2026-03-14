@@ -1,15 +1,61 @@
+import os
+import re
+import mimetypes
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
+from django.http import FileResponse, HttpResponse, Http404, StreamingHttpResponse
 from rest_framework.authtoken.models import Token
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status as http_status
+
+
+def serve_media(request, path):
+    """Serve media files with HTTP Range support so <video> works in Chrome."""
+    # Sanitize path to prevent directory traversal
+    path = os.path.normpath(path)
+    if path.startswith('..') or os.path.isabs(path):
+        raise Http404
+    full_path = os.path.join(settings.MEDIA_ROOT, path)
+    if not os.path.isfile(full_path):
+        raise Http404
+    # Ensure the resolved path is actually under MEDIA_ROOT
+    if not os.path.realpath(full_path).startswith(os.path.realpath(str(settings.MEDIA_ROOT))):
+        raise Http404
+
+    file_size = os.path.getsize(full_path)
+    content_type, _ = mimetypes.guess_type(full_path)
+    content_type = content_type or 'application/octet-stream'
+
+    range_header = request.META.get('HTTP_RANGE', '')
+    if range_header:
+        # Parse Range: bytes=start-end
+        m = re.match(r'bytes=(\d+)-(\d*)', range_header)
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else file_size - 1
+            end = min(end, file_size - 1)
+            length = end - start + 1
+
+            f = open(full_path, 'rb')
+            f.seek(start)
+            resp = HttpResponse(f.read(length), content_type=content_type, status=206)
+            resp['Content-Length'] = str(length)
+            resp['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+            resp['Accept-Ranges'] = 'bytes'
+            return resp
+
+    # No Range header — serve full file
+    resp = FileResponse(open(full_path, 'rb'), content_type=content_type)
+    resp['Content-Length'] = str(file_size)
+    resp['Accept-Ranges'] = 'bytes'
+    return resp
 
 
 @api_view(['POST'])
@@ -105,5 +151,5 @@ urlpatterns = [
     path('api/auth/logout/', logout_view, name='api_logout'),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Always use our Range-aware media server (needed for <video> in Chrome)
+urlpatterns += [path('media/<path:path>', serve_media)]

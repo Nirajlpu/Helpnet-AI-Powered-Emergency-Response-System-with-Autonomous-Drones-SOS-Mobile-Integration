@@ -47,6 +47,7 @@ yarn-error.log*
 *.swp
 *.swo
 *~
+docker-compose.mac.yml
 
 # OS
 .DS_Store

@@ -254,18 +254,15 @@ const ActiveIncidentsList = () => {
                                             sx={{ fontSize: '0.65rem', height: 22 }}
                                         />
                                     )}
-                                    {(incident.reporter_profile_detail || (typeof incident.reporter === 'object' && incident.reporter)) && (() => {
-                                        const rep = incident.reporter_profile_detail || incident.reporter;
-                                        return (
-                                            <Chip
-                                                icon={<PersonIcon sx={{ fontSize: 14 }} />}
-                                                label={`${rep.name} (${rep.phone})`}
-                                                size="small"
-                                                variant="outlined"
-                                                sx={{ fontSize: '0.65rem', height: 22 }}
-                                            />
-                                        );
-                                    })()}
+                                    {incident.reporter_profile_detail && (
+                                        <Chip
+                                            icon={<PersonIcon sx={{ fontSize: 14 }} />}
+                                            label={`${incident.reporter_profile_detail.name} (${incident.reporter_profile_detail.phone})`}
+                                            size="small"
+                                            variant="outlined"
+                                            sx={{ fontSize: '0.65rem', height: 22 }}
+                                        />
+                                    )}
                                 </Box>
 
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
