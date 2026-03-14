@@ -413,10 +413,10 @@ const Profile = () => {
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
               {profile.created_at
                 ? new Date(profile.created_at).toLocaleDateString('en-IN', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })
+                  year: 'numeric',
+                  month: 'long',
+                  day: 'numeric',
+                })
                 : '—'}
             </Typography>
           </Box>
@@ -642,6 +642,7 @@ const Profile = () => {
                       <CardContent sx={{ p: 2.5 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                           <Avatar
+                            src={rel.to_user_avatar || undefined}
                             sx={{
                               bgcolor: 'secondary.main',
                               width: 48,
@@ -734,8 +735,8 @@ const Profile = () => {
               size="small"
               placeholder={
                 searchMode === 'phone' ? 'Enter phone number...' :
-                searchMode === 'email' ? 'Enter email address...' :
-                'Enter User ID (e.g. HN-20260307-001)...'
+                  searchMode === 'email' ? 'Enter email address...' :
+                    'Enter User ID (e.g. HN-20260307-001)...'
               }
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -745,8 +746,8 @@ const Profile = () => {
                   startAdornment: (
                     <InputAdornment position="start">
                       {searchMode === 'phone' ? <PhoneIcon fontSize="small" /> :
-                       searchMode === 'email' ? <EmailIcon fontSize="small" /> :
-                       <FingerprintIcon fontSize="small" />}
+                        searchMode === 'email' ? <EmailIcon fontSize="small" /> :
+                          <FingerprintIcon fontSize="small" />}
                     </InputAdornment>
                   ),
                 },

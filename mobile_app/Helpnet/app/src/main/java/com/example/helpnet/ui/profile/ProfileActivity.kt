@@ -17,6 +17,9 @@ class ProfileActivity : AppCompatActivity() {
     private lateinit var medicationsEditText: TextInputEditText
     private lateinit var medicalConditionsEditText: TextInputEditText
     private lateinit var emergencyInfoEditText: TextInputEditText
+    private val PIN_PREF_KEY = "user_pin"
+    private lateinit var setPinButton: Button
+    private lateinit var removePinButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,12 +33,14 @@ class ProfileActivity : AppCompatActivity() {
         medicationsEditText = findViewById(R.id.editTextMedications)
         medicalConditionsEditText = findViewById(R.id.editTextMedicalConditions)
         emergencyInfoEditText = findViewById(R.id.editTextEmergencyInfo)
-
         val saveButton = findViewById<Button>(R.id.btnSaveProfile)
         val logoutButton = findViewById<Button>(R.id.btnLogout)
+        setPinButton = findViewById(R.id.btnSetPin)
+        removePinButton = findViewById(R.id.btnRemovePin)
 
         // Load saved profile data
         loadProfileData()
+        updatePinButtons()
 
         // Set up save button
         saveButton.setOnClickListener {
@@ -55,6 +60,14 @@ class ProfileActivity : AppCompatActivity() {
             intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
             startActivity(intent)
             finish()
+        }
+
+        setPinButton.setOnClickListener {
+            showSetPinDialog()
+        }
+
+        removePinButton.setOnClickListener {
+            removePin()
         }
     }
 
@@ -87,5 +100,49 @@ class ProfileActivity : AppCompatActivity() {
         editor.apply()
 
         Toast.makeText(this, "Profile saved successfully", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showSetPinDialog() {
+        val input = EditText(this)
+        input.hint = "Enter new PIN"
+        input.inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Set PIN")
+            .setMessage("Enter a new 4-6 digit PIN for emergency actions.")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val pin = input.text.toString()
+                if (pin.length in 4..6) {
+                    val prefs = getSharedPreferences("UserProfile", MODE_PRIVATE)
+                    prefs.edit().putString(PIN_PREF_KEY, pin).apply()
+                    Toast.makeText(this, "PIN set successfully", Toast.LENGTH_SHORT).show()
+                    updatePinButtons()
+                } else {
+                    Toast.makeText(this, "PIN must be 4-6 digits", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun removePin() {
+        val prefs = getSharedPreferences("UserProfile", MODE_PRIVATE)
+        if (prefs.contains(PIN_PREF_KEY)) {
+            prefs.edit().remove(PIN_PREF_KEY).apply()
+            Toast.makeText(this, "PIN removed", Toast.LENGTH_SHORT).show()
+            updatePinButtons()
+        } else {
+            Toast.makeText(this, "No PIN set", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updatePinButtons() {
+        val prefs = getSharedPreferences("UserProfile", MODE_PRIVATE)
+        val hasPin = prefs.contains(PIN_PREF_KEY)
+        setPinButton.isEnabled = !hasPin
+        removePinButton.isEnabled = hasPin
+        setPinButton.alpha = if (!hasPin) 1.0f else 0.5f
+        removePinButton.alpha = if (hasPin) 1.0f else 0.5f
     }
 }

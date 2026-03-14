@@ -125,6 +125,7 @@ class EmergencyService : LifecycleService() {
         // Handle forced stop (after correct PIN) - stop service immediately
         if (intent?.action == ACTION_FORCE_STOP) {
             Log.i("EmergencyService", "Received FORCE STOP - stopping service")
+            stopForeground(true)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -164,6 +165,12 @@ class EmergencyService : LifecycleService() {
             Log.e("EmergencyService", "Missing location permission: ${e.message}")
         } catch (e: Exception) {
             Log.e("EmergencyService", "Failed to init location streaming: ${e.message}")
+        }
+    }
+
+    private fun stopLocationStreaming() {
+        if (::fusedLocationClient.isInitialized && ::locationCallback.isInitialized) {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
         }
     }
 
@@ -390,7 +397,11 @@ class EmergencyService : LifecycleService() {
         )
         val am = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val triggerAt = System.currentTimeMillis() + 1000L
-        am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        } else {
+            am.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+        }
         super.onTaskRemoved(rootIntent)
     }
 
@@ -584,6 +595,10 @@ class EmergencyService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         stopFrameStreaming()
+        stopLocationStreaming()
+        currentRecording?.stop()
+        currentRecording = null
+        try { cameraProviderRef?.unbindAll() } catch (_: Exception) {}
         try { wakeLock?.release() } catch (_: Exception) {}
         cameraExecutor?.shutdown()
         cameraExecutor = null

@@ -15,5 +15,39 @@ services:
     ports:
       - "6379:6379"
 
+  backend:
+    build:
+      context: ./backend
+    command: daphne -b 0.0.0.0 -p 8000 backend.asgi:application
+    volumes:
+      - ./backend/media:/app/media
+      - ./backend/staticfiles:/app/staticfiles
+    ports:
+      - "8000:8000"
+    environment:
+      DB_NAME: helpnet
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_HOST: redis
+    depends_on:
+      - db
+      - redis
+
+  dashboard:
+    build:
+      context: ./dashboard
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:8000/api
+      - VITE_WS_URL=ws://backend:8000/ws/dashboard/
+    depends_on:
+      - db
+      - redis
+
 volumes:
   postgres_data:

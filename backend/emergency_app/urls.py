@@ -13,4 +13,5 @@ router.register(r'responders', views.ResponderViewSet)
 urlpatterns = [
     path('', include(router.urls)),
     path('sos/', views.trigger_sos, name='trigger_sos'),
+    
 ]

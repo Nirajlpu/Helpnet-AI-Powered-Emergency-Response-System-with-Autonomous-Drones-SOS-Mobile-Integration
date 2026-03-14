@@ -495,130 +495,130 @@ const IncidentVideoPage = () => {
     // remount every time parent state (frameUrl, isRecording…) changes.
     const LiveMapPanel = useMemo(() => {
         const Panel = () => {
-        const localMapRef = useRef(null);
-        const localMapInstance = useRef(null);
-        const tileRef = useRef(null);
-        const [mapMode, setMapMode] = useState('street');
+            const localMapRef = useRef(null);
+            const localMapInstance = useRef(null);
+            const tileRef = useRef(null);
+            const [mapMode, setMapMode] = useState('street');
 
-        const SATELLITE_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-        const streetTileUrl = themeMode === 'dark'
-            ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-            : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+            const SATELLITE_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+            const streetTileUrl = themeMode === 'dark'
+                ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
 
-        useEffect(() => {
-            if (!localMapRef.current || localMapInstance.current) return;
+            useEffect(() => {
+                if (!localMapRef.current || localMapInstance.current) return;
 
-            const coords = incident?.location_coordinates?.coordinates || incident?.location?.coordinates;
-            const [lng, lat] = coords || [78.9629, 20.5937];
-            const map = L.map(localMapRef.current, { center: [lat, lng], zoom: 14, zoomControl: true, attributionControl: false });
-            tileRef.current = L.tileLayer(streetTileUrl, { maxZoom: 19 }).addTo(map);
+                const coords = incident?.location_coordinates?.coordinates || incident?.location?.coordinates;
+                const [lng, lat] = coords || [78.9629, 20.5937];
+                const map = L.map(localMapRef.current, { center: [lat, lng], zoom: 14, zoomControl: true, attributionControl: false });
+                tileRef.current = L.tileLayer(streetTileUrl, { maxZoom: 19 }).addTo(map);
 
-            const incidentIcon = L.divIcon({
-                html: `<div style="width:20px;height:20px;background:${severityColor};border:3px solid #fff;border-radius:50%;box-shadow:0 0 15px ${severityColor};animation:pulse-marker 2s infinite"></div>`,
-                className: '', iconSize: [20, 20], iconAnchor: [10, 10],
-            });
-            L.marker([lat, lng], { icon: incidentIcon }).addTo(map)
-                .bindPopup(`<b style="color:${severityColor}">${incident?.title || ''}</b><br/>${incident?.address || ''}`);
-
-            if (assignedDrone && assignedDrone.location?.coordinates) {
-                const [dLng, dLat] = assignedDrone.location.coordinates;
-                const droneIcon = L.divIcon({
-                    html: `<div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:20px;filter:drop-shadow(0 0 6px #2196f3)">🚁</div>`,
-                    className: '', iconSize: [28, 28], iconAnchor: [14, 14],
+                const incidentIcon = L.divIcon({
+                    html: `<div style="width:20px;height:20px;background:${severityColor};border:3px solid #fff;border-radius:50%;box-shadow:0 0 15px ${severityColor};animation:pulse-marker 2s infinite"></div>`,
+                    className: '', iconSize: [20, 20], iconAnchor: [10, 10],
                 });
-                L.marker([dLat, dLng], { icon: droneIcon }).addTo(map)
-                    .bindPopup(`<b>🚁 ${assignedDrone.name}</b><br/>Battery: ${assignedDrone.battery}%<br/>Altitude: ${assignedDrone.altitude}m`);
+                L.marker([lat, lng], { icon: incidentIcon }).addTo(map)
+                    .bindPopup(`<b style="color:${severityColor}">${incident?.title || ''}</b><br/>${incident?.address || ''}`);
 
-                if (assignedDrone.track && assignedDrone.track.length > 0) {
-                    const trackCoords = assignedDrone.track.map(([tLng, tLat]) => [tLat, tLng]);
-                    L.polyline(trackCoords, { color: '#2196f3', weight: 3, opacity: 0.7, dashArray: '8, 4' }).addTo(map);
-                    trackCoords.forEach((coord) => {
-                        L.circleMarker(coord, { radius: 4, fillColor: '#2196f3', color: '#fff', weight: 1, fillOpacity: 0.8 }).addTo(map);
+                if (assignedDrone && assignedDrone.location?.coordinates) {
+                    const [dLng, dLat] = assignedDrone.location.coordinates;
+                    const droneIcon = L.divIcon({
+                        html: `<div style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:20px;filter:drop-shadow(0 0 6px #2196f3)">🚁</div>`,
+                        className: '', iconSize: [28, 28], iconAnchor: [14, 14],
                     });
-                    map.fitBounds(L.latLngBounds([[lat, lng], [dLat, dLng], ...trackCoords]).pad(0.3));
+                    L.marker([dLat, dLng], { icon: droneIcon }).addTo(map)
+                        .bindPopup(`<b>🚁 ${assignedDrone.name}</b><br/>Battery: ${assignedDrone.battery}%<br/>Altitude: ${assignedDrone.altitude}m`);
+
+                    if (assignedDrone.track && assignedDrone.track.length > 0) {
+                        const trackCoords = assignedDrone.track.map(([tLng, tLat]) => [tLat, tLng]);
+                        L.polyline(trackCoords, { color: '#2196f3', weight: 3, opacity: 0.7, dashArray: '8, 4' }).addTo(map);
+                        trackCoords.forEach((coord) => {
+                            L.circleMarker(coord, { radius: 4, fillColor: '#2196f3', color: '#fff', weight: 1, fillOpacity: 0.8 }).addTo(map);
+                        });
+                        map.fitBounds(L.latLngBounds([[lat, lng], [dLat, dLng], ...trackCoords]).pad(0.3));
+                    }
                 }
-            }
 
-            localMapInstance.current = map;
-            return () => { map.remove(); localMapInstance.current = null; };
-        }, []);
+                localMapInstance.current = map;
+                return () => { map.remove(); localMapInstance.current = null; };
+            }, []);
 
-        useEffect(() => {
-            if (!localMapInstance.current || !tileRef.current) return;
-            localMapInstance.current.removeLayer(tileRef.current);
-            const url = mapMode === 'satellite' ? SATELLITE_TILES : streetTileUrl;
-            tileRef.current = L.tileLayer(url, { maxZoom: 19 }).addTo(localMapInstance.current);
-        }, [mapMode, themeMode]);
+            useEffect(() => {
+                if (!localMapInstance.current || !tileRef.current) return;
+                localMapInstance.current.removeLayer(tileRef.current);
+                const url = mapMode === 'satellite' ? SATELLITE_TILES : streetTileUrl;
+                tileRef.current = L.tileLayer(url, { maxZoom: 19 }).addTo(localMapInstance.current);
+            }, [mapMode, themeMode]);
 
-        return (
-            <Box sx={{ position: 'relative' }}>
-                <div ref={localMapRef} style={{ width: '100%', height: 400, borderRadius: 8, overflow: 'hidden' }} />
-                <style>{`
+            return (
+                <Box sx={{ position: 'relative' }}>
+                    <div ref={localMapRef} style={{ width: '100%', height: 400, borderRadius: 8, overflow: 'hidden' }} />
+                    <style>{`
                     @keyframes pulse-marker { 0%,100% { box-shadow: 0 0 8px ${severityColor}; } 50% { box-shadow: 0 0 25px ${severityColor}; } }
                 `}</style>
-                <Box sx={{
-                    position: 'absolute', top: 12, left: 56, zIndex: 1000,
-                    display: 'flex', borderRadius: 1.5, overflow: 'hidden',
-                    border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                }}>
-                    {[
-                        { key: 'street', label: '🗺️ Map' },
-                        { key: 'satellite', label: '🛰️ Satellite' },
-                    ].map((opt) => (
-                        <Box
-                            key={opt.key}
-                            onClick={() => setMapMode(opt.key)}
-                            sx={{
-                                px: 1.5, py: 0.6,
-                                fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
-                                background: mapMode === opt.key ? 'rgba(33,150,243,0.9)' : 'rgba(0,0,0,0.7)',
-                                color: '#fff',
-                                transition: 'all 0.2s',
-                                '&:hover': { background: mapMode === opt.key ? 'rgba(33,150,243,1)' : 'rgba(0,0,0,0.85)' },
-                            }}
-                        >
-                            {opt.label}
-                        </Box>
-                    ))}
+                    <Box sx={{
+                        position: 'absolute', top: 12, left: 56, zIndex: 1000,
+                        display: 'flex', borderRadius: 1.5, overflow: 'hidden',
+                        border: '1px solid rgba(255,255,255,0.2)', boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                    }}>
+                        {[
+                            { key: 'street', label: '🗺️ Map' },
+                            { key: 'satellite', label: '🛰️ Satellite' },
+                        ].map((opt) => (
+                            <Box
+                                key={opt.key}
+                                onClick={() => setMapMode(opt.key)}
+                                sx={{
+                                    px: 1.5, py: 0.6,
+                                    fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer',
+                                    background: mapMode === opt.key ? 'rgba(33,150,243,0.9)' : 'rgba(0,0,0,0.7)',
+                                    color: '#fff',
+                                    transition: 'all 0.2s',
+                                    '&:hover': { background: mapMode === opt.key ? 'rgba(33,150,243,1)' : 'rgba(0,0,0,0.85)' },
+                                }}
+                            >
+                                {opt.label}
+                            </Box>
+                        ))}
+                    </Box>
+                    {assignedDrone && (
+                        <Paper sx={{
+                            position: 'absolute', top: 12, right: 12, zIndex: 1000,
+                            p: 1.5, borderRadius: 2, bgcolor: 'background.paper', backdropFilter: 'blur(8px)',
+                            border: '1px solid rgba(33,150,243,0.3)', boxShadow: 3,
+                        }}>
+                            <Typography variant="caption" sx={{ color: '#2196f3', fontWeight: 700, display: 'block', mb: 0.5 }}>
+                                🚁 {assignedDrone.name} ({assignedDrone.id})
+                            </Typography>
+                            <Box sx={{ display: 'flex', gap: 1.5, fontSize: '0.7rem' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                                    <BatteryIcon sx={{ fontSize: 14, color: assignedDrone.battery > 50 ? '#4caf50' : '#ff9800' }} />
+                                    <Typography variant="caption">{assignedDrone.battery}%</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                                    <AltitudeIcon sx={{ fontSize: 14, color: '#90caf9' }} />
+                                    <Typography variant="caption">{assignedDrone.altitude}m</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                                    <SpeedIcon sx={{ fontSize: 14, color: '#ce93d8' }} />
+                                    <Typography variant="caption">{assignedDrone.speed} km/h</Typography>
+                                </Box>
+                            </Box>
+                        </Paper>
+                    )}
+                    {!assignedDrone && (
+                        <Paper sx={{
+                            position: 'absolute', top: 12, right: 12, zIndex: 1000,
+                            p: 1.5, borderRadius: 2, bgcolor: 'background.paper',
+                            border: '1px solid', borderColor: 'divider', boxShadow: 3,
+                        }}>
+                            <Typography variant="caption" color="text.secondary">No drone assigned to this incident</Typography>
+                        </Paper>
+                    )}
                 </Box>
-                {assignedDrone && (
-                    <Paper sx={{
-                        position: 'absolute', top: 12, right: 12, zIndex: 1000,
-                        p: 1.5, borderRadius: 2, bgcolor: 'background.paper', backdropFilter: 'blur(8px)',
-                        border: '1px solid rgba(33,150,243,0.3)', boxShadow: 3,
-                    }}>
-                        <Typography variant="caption" sx={{ color: '#2196f3', fontWeight: 700, display: 'block', mb: 0.5 }}>
-                            🚁 {assignedDrone.name} ({assignedDrone.id})
-                        </Typography>
-                        <Box sx={{ display: 'flex', gap: 1.5, fontSize: '0.7rem' }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
-                                <BatteryIcon sx={{ fontSize: 14, color: assignedDrone.battery > 50 ? '#4caf50' : '#ff9800' }} />
-                                <Typography variant="caption">{assignedDrone.battery}%</Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
-                                <AltitudeIcon sx={{ fontSize: 14, color: '#90caf9' }} />
-                                <Typography variant="caption">{assignedDrone.altitude}m</Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
-                                <SpeedIcon sx={{ fontSize: 14, color: '#ce93d8' }} />
-                                <Typography variant="caption">{assignedDrone.speed} km/h</Typography>
-                            </Box>
-                        </Box>
-                    </Paper>
-                )}
-                {!assignedDrone && (
-                    <Paper sx={{
-                        position: 'absolute', top: 12, right: 12, zIndex: 1000,
-                        p: 1.5, borderRadius: 2, bgcolor: 'background.paper',
-                        border: '1px solid', borderColor: 'divider', boxShadow: 3,
-                    }}>
-                        <Typography variant="caption" color="text.secondary">No drone assigned to this incident</Typography>
-                    </Paper>
-                )}
-            </Box>
-        );
-    };
-    return Panel;
+            );
+        };
+        return Panel;
     }, [incident?.id, themeMode, assignedDrone?.id, severityColor]);
 
     if (!usingLiveData && !error) {
@@ -716,7 +716,8 @@ const IncidentVideoPage = () => {
                 {/* Header bar */}
                 <Box sx={{ position: 'relative', zIndex: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, py: 1, bgcolor: 'rgba(18,18,18,0.85)', backdropFilter: 'blur(6px)', borderBottom: '1px solid', borderColor: 'divider' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Box sx={{ width: 10, height: 10, borderRadius: '50%',
+                        <Box sx={{
+                            width: 10, height: 10, borderRadius: '50%',
                             background: isLive ? '#ff4444' : hasPlayback ? '#ff9800' : '#666',
                             animation: isLive ? 'blink 1.5s infinite' : 'none'
                         }} />
@@ -765,11 +766,14 @@ const IncidentVideoPage = () => {
                     ) : hasPlayback ? (
                         /* Stream ended — show last recorded video */
                         <video
-                            src={lastRecUrl}
+                            key={lastRecUrl}
                             controls
                             autoPlay
+                            playsInline
                             style={{ width: '100%', height: '100%', objectFit: 'contain', position: 'absolute', top: 0, left: 0, background: '#000' }}
-                        />
+                        >
+                            <source src={lastRecUrl} type="video/mp4" />
+                        </video>
                     ) : (
                         /* No stream, no recording yet */
                         <>
@@ -872,7 +876,7 @@ const IncidentVideoPage = () => {
                                     <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
                                         {/* Avatar */}
                                         <Box sx={{ width: 100, height: 100, borderRadius: '50%', overflow: 'hidden', border: '3px solid', borderColor: 'primary.main', flexShrink: 0 }}>
-                                            <img src={reporterInfo.avatar || 'https://i.pravatar.cc/150'} alt={reporterInfo.name}
+                                            <img src={reporterInfo.avatar} alt={reporterInfo.name}
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                 onError={(e) => { e.target.src = 'https://i.pravatar.cc/150?img=0'; }}
                                             />
@@ -1272,11 +1276,14 @@ const IncidentVideoPage = () => {
                                 </Box>
                                 <Box sx={{ background: '#000', display: 'flex', justifyContent: 'center' }}>
                                     <video
-                                        src={playbackUrl || dronePlaybackUrl}
+                                        key={playbackUrl || dronePlaybackUrl}
                                         controls
                                         autoPlay
+                                        playsInline
                                         style={{ width: '100%', maxHeight: 450 }}
-                                    />
+                                    >
+                                        <source src={playbackUrl || dronePlaybackUrl} type="video/mp4" />
+                                    </video>
                                 </Box>
                             </Paper>
                         )}
@@ -1322,7 +1329,8 @@ const IncidentVideoPage = () => {
                         {recordingsList.length > 0 ? (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 3 }}>
                                 {recordingsList.map((rec, i) => (
-                                    <Paper key={`phone-${i}`} variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    <Paper key={`phone-${i}`} variant="outlined" sx={{
+                                        p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                         cursor: 'pointer', '&:hover': { borderColor: 'primary.main', bgcolor: 'action.hover' },
                                         ...(playbackUrl?.includes(rec.filename) ? { borderColor: 'primary.main', bgcolor: 'rgba(33,150,243,0.08)' } : {})
                                     }}>
@@ -1359,7 +1367,8 @@ const IncidentVideoPage = () => {
                         {droneRecordingsList.length > 0 ? (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                                 {droneRecordingsList.map((rec, i) => (
-                                    <Paper key={`drone-${i}`} variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                    <Paper key={`drone-${i}`} variant="outlined" sx={{
+                                        p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                         cursor: 'pointer', '&:hover': { borderColor: '#2196f3', bgcolor: 'action.hover' },
                                         ...(dronePlaybackUrl?.includes(rec.filename) ? { borderColor: '#2196f3', bgcolor: 'rgba(33,150,243,0.08)' } : {})
                                     }}>

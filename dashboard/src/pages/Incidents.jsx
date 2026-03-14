@@ -282,10 +282,10 @@ const Incidents = () => {
                                             sx={{ fontSize: '0.7rem', height: 22 }}
                                         />
                                     )}
-                                    {incident.reporter && (
+                                    {incident.reporter_profile_detail && (
                                         <Chip
                                             icon={<PersonIcon sx={{ fontSize: 14 }} />}
-                                            label={`${incident.reporter.name} (${incident.reporter.phone})`}
+                                            label={`${incident.reporter_profile_detail.name} (${incident.reporter_profile_detail.phone})`}
                                             size="small"
                                             variant="outlined"
                                             sx={{ fontSize: '0.7rem', height: 22 }}

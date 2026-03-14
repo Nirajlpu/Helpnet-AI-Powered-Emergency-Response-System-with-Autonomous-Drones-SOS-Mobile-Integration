@@ -28,20 +28,19 @@ class PasswordActivity : AppCompatActivity() {
             .setPositiveButton("OK") { _, _ ->
                 val entered = input.text.toString()
                 if (entered == PIN) {
-                    val stopIntent = Intent(this, EmergencyService::class.java).apply { action = EmergencyService.ACTION_FORCE_STOP }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(stopIntent)
-
-                    } else {
-                        startService(stopIntent)
-                    }
+                    // Only return result OK, let SosActivity handle stopping service
+                    setResult(android.app.Activity.RESULT_OK)
                     finish()
                 } else {
                     Toast.makeText(this, "Incorrect PIN", Toast.LENGTH_SHORT).show()
+                    setResult(android.app.Activity.RESULT_CANCELED)
                     finish()
                 }
             }
-            .setNegativeButton("Cancel") { _, _ -> finish() }
+            .setNegativeButton("Cancel") { _, _ ->
+                setResult(android.app.Activity.RESULT_CANCELED)
+                finish()
+            }
             .show()
     }
 }

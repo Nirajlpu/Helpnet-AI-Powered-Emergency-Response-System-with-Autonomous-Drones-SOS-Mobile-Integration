@@ -13,8 +13,12 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import com.example.helpnet.service.EmergencyService
 
 class SosActivity : AppCompatActivity() {
+    companion object {
+        private const val REQUEST_CODE_PIN = 1001
+    }
 
     private lateinit var mapSos: MapView
     private lateinit var countdownTextView: TextView
@@ -63,12 +67,30 @@ class SosActivity : AppCompatActivity() {
 
         // Set up cancel button
         cancelButton.setOnClickListener {
-            countdownTimer?.cancel()
-            finish()
+            // Launch PasswordActivity for PIN verification
+            val intent = android.content.Intent(this, com.example.helpnet.ui.auth.PasswordActivity::class.java)
+            startActivityForResult(intent, REQUEST_CODE_PIN)
         }
 
         // Start countdown
         startCountdown()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_CODE_PIN && resultCode == android.app.Activity.RESULT_OK) {
+            // Correct PIN entered, stop EmergencyService
+            val stopIntent = android.content.Intent(this, EmergencyService::class.java).apply {
+                action = EmergencyService.ACTION_FORCE_STOP
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                startForegroundService(stopIntent)
+            } else {
+                startService(stopIntent)
+            }
+            countdownTimer?.cancel()
+            finish()
+        }
     }
 
     private fun startCountdown() {

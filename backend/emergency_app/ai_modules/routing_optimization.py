@@ -39,6 +39,8 @@ class DroneRouter:
             if drone.has_lidar:
                 cap_score += 0.15
             score += cap_score
+
+            
             
             scores.append((drone, score))
         

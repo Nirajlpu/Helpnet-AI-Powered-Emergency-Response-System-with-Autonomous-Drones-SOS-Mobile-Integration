@@ -2,6 +2,7 @@ from celery import shared_task
 from django.core.cache import cache
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from pytz import timezone
 
 from .models import Incident, Drone
 from .ai_modules.routing_optimization import get_router
@@ -11,18 +12,28 @@ def auto_dispatch_drone(incident_id):
     try:
         incident = Incident.objects.get(id=incident_id)
         
-        available = Drone.objects.filter(
+        available_drones = Drone.objects.filter(
             status='IDLE',
             battery_level__gte=25
         )
         
         router = get_router()
-        best_drone = router.optimize_dispatch(incident, available)
+        best_drone = router.optimize_dispatch(incident, available_drones)
         
         if best_drone:
             best_drone.status = 'EN_ROUTE'
             best_drone.current_incident = incident
             best_drone.save()
+           
+            incident.timeLine.append({
+                "time": timezone.now().isoformat(),
+                "label": "Drone Dispatched",
+                "detail": f"Drone {best_drone.id} dispatched to location {incident.location_coordinates}",
+                "icon": "🚁",
+                "color": "#2196f3",
+            })
+
+            incident.save(update_fields=["timeLine"])          
             
             incident.status = 'DISPATCHED'
             incident.save()

@@ -36,6 +36,23 @@ import os
 import requests
 import threading
 import glob
+import shutil
+
+# Locate ffmpeg binary — check PATH, then common install locations
+def _find_ffmpeg():
+    path = shutil.which('ffmpeg')
+    if path:
+        return path
+    for candidate in ('/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg', '/usr/bin/ffmpeg'):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+_FFMPEG_BIN = _find_ffmpeg()
+if _FFMPEG_BIN:
+    print(f"[video] ffmpeg found at: {_FFMPEG_BIN}")
+else:
+    print("[video] WARNING: ffmpeg not found — video recordings will use OpenCV mp4v fallback (no audio, limited browser support)")
 
 # In-memory store for latest video frames per incident (keyed by incident_id)
 _live_frames = {}
@@ -54,70 +71,161 @@ _drone_recording_lock = threading.Lock()
 _RECORDING_STALE_TIMEOUT = 30
 
 
+def _is_valid_jpeg(filepath, min_size=500):
+    """Check if a file is a valid, complete JPEG (has FFD8 header and FFD9 trailer)."""
+    try:
+        size = os.path.getsize(filepath)
+        if size < min_size:
+            return False
+        with open(filepath, 'rb') as f:
+            header = f.read(2)
+            if header != b'\xff\xd8':
+                return False
+            f.seek(-2, 2)
+            trailer = f.read(2)
+            if trailer != b'\xff\xd9':
+                return False
+        return True
+    except (OSError, IOError):
+        return False
+
+
 def _assemble_mp4(frame_dir, video_full_path, fps=5):
     """Assemble JPEG frames (and optional PCM audio) into an MP4 video. Returns (frame_count, duration) or None."""
     import subprocess
     frame_files = sorted(glob.glob(os.path.join(frame_dir, 'frame_*.jpg')))
     if not frame_files:
         return None
+
+    # Validate each frame — remove corrupt / partially-written JPEGs
+    valid_files = []
+    removed = 0
+    for fp in frame_files:
+        if _is_valid_jpeg(fp):
+            valid_files.append(fp)
+        else:
+            print(f"[_assemble_mp4] Removing corrupt frame: {fp}")
+            try:
+                os.remove(fp)
+            except OSError:
+                pass
+            removed += 1
+    if removed:
+        print(f"[_assemble_mp4] Removed {removed} corrupt frame(s), {len(valid_files)} valid frames remain")
+
+    if not valid_files:
+        return None
+
+    # Always re-number frames sequentially 0..N-1 so ffmpeg sequence pattern works
+    for idx, old_path in enumerate(valid_files):
+        new_path = os.path.join(frame_dir, f"frame_{idx:06d}.jpg")
+        if old_path != new_path:
+            os.rename(old_path, new_path)
+    frame_files = [os.path.join(frame_dir, f"frame_{i:06d}.jpg") for i in range(len(valid_files))]
+
     os.makedirs(os.path.dirname(video_full_path), exist_ok=True)
     num_frames = len(frame_files)
     assembled = False
+
+    ffmpeg = _FFMPEG_BIN  # resolved at module load
 
     # Check for audio file
     audio_path = os.path.join(frame_dir, 'audio.pcm')
     has_audio = os.path.exists(audio_path) and os.path.getsize(audio_path) > 0
 
     # Try ffmpeg first for H.264 + faststart (proper duration & browser playback)
-    try:
-        frame_pattern = os.path.join(frame_dir, 'frame_*.jpg')
-        cmd = [
-            'ffmpeg', '-y', '-framerate', str(fps),
-            '-pattern_type', 'glob', '-i', frame_pattern,
-        ]
-        if has_audio:
-            # Raw PCM: 16kHz, mono, 16-bit signed little-endian
-            cmd += [
-                '-f', 's16le', '-ar', '16000', '-ac', '1', '-i', audio_path,
+    if ffmpeg:
+        try:
+            # Use printf-style sequence pattern (more reliable than glob across ffmpeg versions)
+            frame_pattern = os.path.join(frame_dir, 'frame_%06d.jpg')
+            cmd = [
+                ffmpeg, '-y', '-framerate', str(fps),
+                '-i', frame_pattern,
             ]
-        # Explicit stream mapping when audio is present
-        if has_audio:
-            cmd += ['-map', '0:v', '-map', '1:a']
-        cmd += [
-            '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
-            '-crf', '23', '-preset', 'fast',
-        ]
-        if has_audio:
-            cmd += ['-c:a', 'aac', '-b:a', '64k', '-shortest']
-        cmd += ['-movflags', '+faststart', video_full_path]
-        print(f"[_assemble_mp4] ffmpeg cmd: {' '.join(cmd)}")
-        result = subprocess.run(cmd, check=True, capture_output=True, timeout=120, text=True)
-        if result.stderr:
-            print(f"[_assemble_mp4] ffmpeg stderr: {result.stderr[-500:]}")
-        # Validate output — must be at least 1KB per 10 frames
-        if os.path.exists(video_full_path) and os.path.getsize(video_full_path) >= max(1024, num_frames * 100):
-            assembled = True
-            print(f"[_assemble_mp4] Success: {video_full_path} ({os.path.getsize(video_full_path)} bytes, audio={'yes' if has_audio else 'no'})")
-        else:
-            # ffmpeg ran but produced a suspiciously small file — remove it
-            if os.path.exists(video_full_path):
-                os.remove(video_full_path)
-            print(f"[_assemble_mp4] ffmpeg output too small, falling back to OpenCV")
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
-        print(f"[_assemble_mp4] ffmpeg failed: {e}")
-        if hasattr(e, 'stderr') and e.stderr:
-            print(f"[_assemble_mp4] ffmpeg stderr: {e.stderr[-500:]}")
-        pass
+            if has_audio:
+                # Raw PCM: 16kHz, mono, 16-bit signed little-endian
+                cmd += [
+                    '-f', 's16le', '-ar', '16000', '-ac', '1', '-i', audio_path,
+                ]
+            # Explicit stream mapping when audio is present
+            if has_audio:
+                cmd += ['-map', '0:v', '-map', '1:a']
+            cmd += [
+                '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                '-crf', '23', '-preset', 'fast',
+            ]
+            if has_audio:
+                cmd += ['-c:a', 'aac', '-b:a', '64k', '-shortest']
+            cmd += ['-movflags', '+faststart', video_full_path]
+            print(f"[_assemble_mp4] ffmpeg cmd: {' '.join(cmd)}")
+            result = subprocess.run(cmd, check=True, capture_output=True, timeout=120, text=True)
+            if result.stderr:
+                print(f"[_assemble_mp4] ffmpeg stderr: {result.stderr[-500:]}")
+            # Validate output — must be at least 1KB
+            if os.path.exists(video_full_path) and os.path.getsize(video_full_path) >= 1024:
+                assembled = True
+                print(f"[_assemble_mp4] Success: {video_full_path} ({os.path.getsize(video_full_path)} bytes, audio={'yes' if has_audio else 'no'})")
+            else:
+                # ffmpeg ran but produced a suspiciously small file — remove it
+                if os.path.exists(video_full_path):
+                    os.remove(video_full_path)
+                print(f"[_assemble_mp4] ffmpeg output too small, falling back")
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+            print(f"[_assemble_mp4] ffmpeg sequence failed: {e}")
+            if hasattr(e, 'stderr') and e.stderr:
+                print(f"[_assemble_mp4] ffmpeg stderr: {e.stderr[-500:]}")
+
+    if not assembled and ffmpeg:
+        # Fallback: use ffmpeg concat demuxer
+        try:
+            concat_list = os.path.join(frame_dir, '_concat.txt')
+            with open(concat_list, 'w') as f:
+                for fp in frame_files:
+                    f.write(f"file '{fp}'\n")
+                    f.write(f"duration {1.0 / fps}\n")
+            cmd = [
+                ffmpeg, '-y', '-f', 'concat', '-safe', '0', '-i', concat_list,
+            ]
+            if has_audio:
+                cmd += ['-f', 's16le', '-ar', '16000', '-ac', '1', '-i', audio_path]
+                cmd += ['-map', '0:v', '-map', '1:a']
+            cmd += [
+                '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                '-crf', '23', '-preset', 'fast',
+                '-vsync', 'cfr', '-r', str(fps),
+            ]
+            if has_audio:
+                cmd += ['-c:a', 'aac', '-b:a', '64k', '-shortest']
+            cmd += ['-movflags', '+faststart', video_full_path]
+            print(f"[_assemble_mp4] ffmpeg concat fallback cmd: {' '.join(cmd)}")
+            result = subprocess.run(cmd, check=True, capture_output=True, timeout=120, text=True)
+            if os.path.exists(video_full_path) and os.path.getsize(video_full_path) >= 1024:
+                assembled = True
+                print(f"[_assemble_mp4] Concat fallback success: {video_full_path} ({os.path.getsize(video_full_path)} bytes)")
+            else:
+                if os.path.exists(video_full_path):
+                    os.remove(video_full_path)
+            try:
+                os.remove(concat_list)
+            except OSError:
+                pass
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+            print(f"[_assemble_mp4] ffmpeg concat fallback failed: {e}")
+            try:
+                os.remove(os.path.join(frame_dir, '_concat.txt'))
+            except OSError:
+                pass
 
     if not assembled:
-        # Fallback to OpenCV with mp4v codec (reliable, browser-playable)
+        # Last resort: OpenCV writes mp4v, then re-encode to H.264 with ffmpeg
         import cv2
         first = cv2.imread(frame_files[0])
         if first is None:
             return None
         h, w = first.shape[:2]
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        writer = cv2.VideoWriter(video_full_path, fourcc, fps, (w, h))
+        tmp_path = video_full_path + '.tmp.mp4'
+        writer = cv2.VideoWriter(tmp_path, fourcc, fps, (w, h))
         if not writer.isOpened():
             return None
         for fp in frame_files:
@@ -127,6 +235,47 @@ def _assemble_mp4(frame_dir, video_full_path, fps=5):
                     img = cv2.resize(img, (w, h))
                 writer.write(img)
         writer.release()
+
+        # Re-encode mp4v → H.264 for browser compatibility (+ mux audio if available)
+        if ffmpeg:
+            try:
+                cmd = [ffmpeg, '-y', '-i', tmp_path]
+                if has_audio:
+                    cmd += ['-f', 's16le', '-ar', '16000', '-ac', '1', '-i', audio_path]
+                    cmd += ['-map', '0:v', '-map', '1:a']
+                cmd += [
+                    '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                    '-crf', '23', '-preset', 'fast',
+                ]
+                if has_audio:
+                    cmd += ['-c:a', 'aac', '-b:a', '64k', '-shortest']
+                cmd += ['-movflags', '+faststart', video_full_path]
+                print(f"[_assemble_mp4] Re-encoding OpenCV output to H.264{' + AAC audio' if has_audio else ''}")
+                subprocess.run(cmd, check=True, capture_output=True, timeout=120, text=True)
+                if os.path.exists(video_full_path) and os.path.getsize(video_full_path) >= 1024:
+                    assembled = True
+                    print(f"[_assemble_mp4] Re-encode success: {video_full_path} ({os.path.getsize(video_full_path)} bytes)")
+                else:
+                    # Re-encode failed, keep the mp4v version as-is
+                    os.rename(tmp_path, video_full_path)
+                    print(f"[_assemble_mp4] Re-encode produced bad output, keeping mp4v fallback")
+            except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+                # ffmpeg failed — keep the mp4v version
+                print(f"[_assemble_mp4] Re-encode failed ({e}), keeping mp4v fallback")
+                if hasattr(e, 'stderr') and e.stderr:
+                    print(f"[_assemble_mp4] Re-encode stderr: {e.stderr[-500:]}")
+                if os.path.exists(tmp_path):
+                    os.rename(tmp_path, video_full_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+        else:
+            # No ffmpeg at all — keep the mp4v version
+            print(f"[_assemble_mp4] No ffmpeg available, keeping mp4v fallback")
+            os.rename(tmp_path, video_full_path)
 
     # Clean up frame files
     for fp in frame_files:
@@ -259,7 +408,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         """Get all family relations for a user profile."""
         profile = self.get_object()
         relations = FamilyRelation.objects.filter(from_user=profile).select_related('to_user')
-        return Response(FamilyRelationSerializer(relations, many=True).data)
+        return Response(FamilyRelationSerializer(relations, many=True, context={'request': request}).data)
 
     @action(detail=True, methods=['post'])
     def add_family(self, request, pk=None):
@@ -282,7 +431,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         if not created:
             return Response({'error': 'Relation already exists'}, status=400)
 
-        return Response(FamilyRelationSerializer(family_relation).data, status=201)
+        return Response(FamilyRelationSerializer(family_relation, context={'request': request}).data, status=201)
 
     @action(detail=True, methods=['delete'])
     def remove_family(self, request, pk=None):
@@ -311,7 +460,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 'email': request.user.email or f'{request.user.username}@helpnet.local',
             }
         )
-        return Response(UserProfileSerializer(profile).data)
+        return Response(UserProfileSerializer(profile, context={'request': request}).data)
 
 
 def _generate_user_id_code():
@@ -789,6 +938,9 @@ class IncidentViewSet(viewsets.ModelViewSet):
         if not rec:
             return Response({"error": "No active drone recording"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Brief pause so any in-flight frame write can finish flushing to disk
+        time.sleep(0.3)
+
         frame_dir = rec['dir']
         frame_files = sorted(glob.glob(os.path.join(frame_dir, 'frame_*.jpg')))
         if not frame_files:
@@ -842,6 +994,9 @@ class IncidentViewSet(viewsets.ModelViewSet):
             pattern = os.path.join(drone_dir, '*.mp4')
             for vpath in sorted(glob.glob(pattern), reverse=True):
                 fname = os.path.basename(vpath)
+                # Skip temp, backup and intermediate files
+                if '.tmp.' in fname or '_old_' in fname or fname.startswith('_'):
+                    continue
                 size = os.path.getsize(vpath)
                 rel = os.path.join('recordings', incident_key, 'drone', fname)
                 results.append({"filename": fname, "url": f"{django_settings.MEDIA_URL}{rel}", "size_bytes": size})
@@ -873,6 +1028,9 @@ class IncidentViewSet(viewsets.ModelViewSet):
             rec = _active_recordings.pop(incident_key, None)
         if not rec:
             return Response({"error": "No active recording"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Brief pause so any in-flight frame write can finish flushing to disk
+        time.sleep(0.3)
 
         frame_dir = rec['dir']
         frame_files = sorted(glob.glob(os.path.join(frame_dir, 'frame_*.jpg')))
@@ -937,6 +1095,9 @@ class IncidentViewSet(viewsets.ModelViewSet):
             pattern = os.path.join(phone_dir, '*.mp4')
             for vpath in sorted(glob.glob(pattern), reverse=True):
                 fname = os.path.basename(vpath)
+                # Skip temp, backup and intermediate files
+                if '.tmp.' in fname or '_old_' in fname or fname.startswith('_'):
+                    continue
                 size = os.path.getsize(vpath)
                 rel = os.path.join('recordings', incident_key, 'phone', fname)
                 results.append({
@@ -1268,6 +1429,9 @@ def trigger_sos(request):
     data = serializer.validated_data
 
     point = Point(data['longitude'], data['latitude'], srid=4326)
+    user=request.user if request.user.is_authenticated else None
+    user.location_coordinates=point if user else None
+    print(f"[trigger_sos] Received SOS from user: {user}, location: ({data['latitude']}, {data['longitude']})")
 
     # AI classification from audio (if provided)
     ai_result = {}
